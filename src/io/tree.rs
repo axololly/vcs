@@ -1,4 +1,4 @@
-use std::{fs::File, io::Write as _, path::Path};
+use std::{fs::File, io::Write, path::Path};
 
 use crate::backend::{hash::RawCommitHash, tree::Tree};
 
@@ -6,7 +6,7 @@ impl Tree {
     pub fn from_file(path: &Path) -> eyre::Result<Tree> {
         let fp = File::open(path)?;
 
-        let raw_links: Vec<(RawCommitHash, Vec<RawCommitHash>)> = rmp_serde::from_read(fp).unwrap();
+        let raw_links: Vec<(RawCommitHash, Vec<RawCommitHash>)> = rmp_serde::from_read(fp)?;
 
         let mut tree = Tree::empty();
 
@@ -20,7 +20,7 @@ impl Tree {
     }
 
     pub fn to_file(&self, path: &Path) -> eyre::Result<()> {
-        let mut fp = File::open(path)?;
+        let mut fp = File::create(path)?;
 
         let mut raw_links: Vec<(RawCommitHash, Vec<RawCommitHash>)> = vec![];
 
@@ -33,7 +33,7 @@ impl Tree {
             raw_links.push((*current_hash, raw_parents));
         }
 
-        let data = rmp_serde::to_vec(&raw_links).unwrap();
+        let data = rmp_serde::to_vec(&raw_links)?;
 
         fp.write_all(&data)?;
 

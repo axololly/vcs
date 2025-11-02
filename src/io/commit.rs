@@ -1,7 +1,8 @@
-use std::{collections::BTreeMap, fs::File, io::{Read as _, Write as _}, path::{Path, PathBuf}, str::FromStr};
+use std::{collections::BTreeMap, fs::File, io::{Read, Write}, path::{Path, PathBuf}, str::FromStr};
 
 use chrono::DateTime;
-use eyre::Context;
+use eyre::eyre;
+use miniz_oxide::{deflate::compress_to_vec, inflate::decompress_to_vec};
 use serde::{Deserialize, Serialize};
 
 use crate::backend::{commit::{Commit, CommitHeader}, hash::CommitHash};
@@ -17,58 +18,61 @@ pub struct RawCommitHeader {
 fn read_exact(fp: &mut File, len: usize) -> eyre::Result<Vec<u8>> {
     let mut buf = vec![0u8; len];
 
-    fp.read_exact(&mut buf).wrap_err_with(|| format!("failed to read {len} bytes from file"))?;
+    fp.read_exact(&mut buf)?;
 
     Ok(buf)
 }
 
 fn compress_data(input: &[u8]) -> Vec<u8> {
-    miniz_oxide::deflate::compress_to_vec(input, 6)
+    compress_to_vec(input, 6)
 }
 
-fn decompress_data(input: &[u8]) -> Vec<u8> {
-    miniz_oxide::inflate::decompress_to_vec(input).unwrap()
+fn decompress_data(input: &[u8]) -> eyre::Result<Vec<u8>> {
+    let buf = decompress_to_vec(input)
+        .map_err(|e| eyre!("failed to decompress data: {e}"))?;
+
+    Ok(buf)
 }
 
-fn _intermediate_read(path: &Path) -> (CommitHeader, File) {
-    let fp = File::open(path).unwrap();
+fn _intermediate_read(path: &Path) -> eyre::Result<(CommitHeader, File)> {
+    let fp = File::open(path)?;
 
-    let raw_header: RawCommitHeader = rmp_serde::from_read(&fp).unwrap();
+    let raw_header: RawCommitHeader = rmp_serde::from_read(&fp)?;
 
     let timestamp = DateTime::from_timestamp_secs(raw_header.timestamp as i64).unwrap().into();
 
     let header = CommitHeader {
-        hash: CommitHash::from_str(&raw_header.hash).unwrap(),
+        hash: CommitHash::from_str(&raw_header.hash)?,
         author: raw_header.author,
         message: raw_header.message,
         timestamp
     };
 
-    (header, fp)
+    Ok((header, fp))
 }
 
 impl CommitHeader {
-    pub fn from_file(path: &Path) -> CommitHeader {
-        let (header, _) = _intermediate_read(path);
+    pub fn from_file(path: &Path) -> eyre::Result<CommitHeader> {
+        let (header, _) = _intermediate_read(path)?;
 
-        header
+        Ok(header)
     }
 }
 
 impl Commit {
     pub fn from_file(path: &Path) -> eyre::Result<Commit> {
-        let (header, mut fp) = _intermediate_read(path);
+        let (header, mut fp) = _intermediate_read(path)?;
 
-        let file_info: Vec<(String, usize)> = rmp_serde::from_read(&fp).unwrap();
+        let file_info: Vec<(String, usize)> = rmp_serde::from_read(&fp)?;
 
         let mut files = BTreeMap::new();
 
         for (file, length) in file_info {
             let compressed = read_exact(&mut fp, length)?;
 
-            let content = decompress_data(&compressed);
+            let content = decompress_data(&compressed)?;
 
-            files.insert(PathBuf::from(file), content);
+            files.insert(PathBuf::from(file), String::from_utf8(content)?);
         }
 
         Ok(Commit { header, files })
@@ -82,14 +86,14 @@ impl Commit {
             timestamp: self.header.timestamp.timestamp() as u64
         };
 
-        let raw_header_bytes = rmp_serde::to_vec(&raw_header).unwrap();
+        let raw_header_bytes = rmp_serde::to_vec(&raw_header)?;
 
         let mut file_info: Vec<(String, usize)> = vec![];
 
         let mut content_blob: Vec<u8> = Vec::with_capacity(4096);
 
         for (path, content) in &self.files {
-            let compressed = compress_data(content);
+            let compressed = compress_data(content.as_bytes());
 
             content_blob.extend_from_slice(&compressed);
 
@@ -100,7 +104,7 @@ impl Commit {
         
         fp.write_all(&raw_header_bytes)?;
 
-        let file_info_bytes = rmp_serde::to_vec(&file_info).unwrap();
+        let file_info_bytes = rmp_serde::to_vec(&file_info)?;
 
         fp.write_all(&file_info_bytes)?;
 

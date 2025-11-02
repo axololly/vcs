@@ -7,6 +7,7 @@ use thiserror::Error;
 #[derive(Deserialize, Serialize)]
 pub struct ProjectInfo {
     pub project_name: String,
+    pub current_user: String,
 
     // Vec<(name, hash)>
     pub branches: Vec<(String, String)>,

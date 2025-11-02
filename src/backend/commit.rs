@@ -17,7 +17,7 @@ pub struct CommitHeader {
 
 pub struct Commit {
     pub header: CommitHeader,
-    pub files: BTreeMap<PathBuf, Vec<u8>>
+    pub files: BTreeMap<PathBuf, String>
 }
 
 impl Commit {

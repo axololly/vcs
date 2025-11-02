@@ -1,30 +1,20 @@
-use std::path::Path;
+// use diff::{lines as diff_lines, Result};
 
-use eyre::{eyre, Result};
-use thiserror::Error;
+// fn main() {
+//     let new = "foo\nbaz";
+//     let old = "foo\nbar\nbaz\nquux";
 
-#[derive(Debug, Error)]
-pub enum RepoError {
-    #[error("root directory `.acs` missing")]
-    RootDirMissing
-}
+//     for diff in diff_lines(old, new) {
+//         match diff {
+//             Result::Left(l) => println!("- {l}"),
+//             Result::Both(l, _) => println!("  {l}"),
+//             Result::Right(r) => println!("+ {r}"),
+//         }
+//     }
+// }
 
-fn ensure_repo_exists() -> Result<()> {
-    let path = Path::new(".acs");
+use asc::commands::main;
 
-    if !path.exists() {
-        return Err(eyre!("Missing path: `.acs`"));
-    }
-    
-    Ok(())
-}
-
-fn main() -> Result<()> {
-    color_eyre::install()?;
-
-    ensure_repo_exists()?;
-
-    println!("Directory exists!");
-
-    Ok(())
-}
+// fn main() -> eyre::Result<()> {
+//     from_cli()
+// }

@@ -1,13 +1,24 @@
-use std::{error::Error, fmt::{Debug, Display, Formatter}, ops::{Deref, DerefMut}, str::FromStr};
+use std::{fmt::{Debug, Display, Formatter}, ops::{Deref, DerefMut}, str::FromStr};
+
+use eyre::eyre;
+use serde::{Deserialize, Serialize};
 
 pub type RawCommitHash = [u8; 20];
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CommitHash(RawCommitHash);
 
 impl CommitHash {
     pub fn root() -> CommitHash {
         CommitHash::from(ROOT_HASH_STR)
+    }
+
+    pub fn shorten(&self) -> String {
+        let mut repr = format!("{self}");
+
+        repr.truncate(10);
+
+        repr
     }
 }
 
@@ -68,17 +79,14 @@ impl DerefMut for CommitHash {
     }
 }
 
-#[derive(Debug)]
-pub struct CommitHashDecodeError(String);
-
 impl FromStr for CommitHash {
-    type Err = CommitHashDecodeError;
+    type Err = eyre::Report;
     
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let value = value.to_string();
 
         if value.len() != 40 {
-            return Err(CommitHashDecodeError(value));
+            return Err(eyre!("failed to decode hash: {value:?}"));
         }
         
         let mut commit_hash = [0u8; 20];
@@ -87,7 +95,7 @@ impl FromStr for CommitHash {
             let chunk = &value[i * 2 .. (i + 1) * 2];
 
             let Ok(hex) = u8::from_str_radix(chunk, 16) else {
-                return Err(CommitHashDecodeError(value));
+                return Err(eyre!("failed to decode hash: {value:?}"));
             };
 
             commit_hash[i] = hex;
@@ -96,14 +104,6 @@ impl FromStr for CommitHash {
         Ok(CommitHash(commit_hash))
     }
 }
-
-impl Display for CommitHashDecodeError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CommitHashDecodeError: failed to decode hash: {:?}", self.0)
-    }
-}
-
-impl Error for CommitHashDecodeError {}
 
 // Sha1 hash for the string "root". Used for every root commit.
 pub static ROOT_HASH_STR: &str = "dc76e9f0c0006e8f919e0c515c66dbba3982f785";
