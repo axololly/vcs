@@ -1,4 +1,3 @@
-mod commit;
 mod info;
 mod repository;
-mod tree;
+mod graph;

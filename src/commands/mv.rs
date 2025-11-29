@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use clap::Args as A;
-use eyre::{eyre, ContextCompat};
+use eyre::{Result, eyre};
 
-use crate::backend::repository::Repository;
+use crate::{backend::repository::Repository, unwrap};
 
 #[derive(A)]
 pub struct Args {
@@ -16,7 +16,7 @@ pub struct Args {
     new: PathBuf
 }
 
-pub fn parse(args: Args) -> eyre::Result<()> {
+pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
     let index = repo.staged_files
@@ -29,11 +29,14 @@ pub fn parse(args: Args) -> eyre::Result<()> {
     let mut new_path = args.new;
     
     if new_path.is_dir() {
-        let file_name = args.old
-            .file_name()
-            .unwrap()
-            .to_str()
-            .wrap_err_with(|| format!("file name of {} contains invalid UTF-8.", args.old.display()))?;
+        let file_name = unwrap!(
+            args.old
+                .file_name()
+                .unwrap()
+                .to_str(),
+            
+            "file name of {} contains invalid UTF-8.", args.old.display()
+        );
 
         new_path.push(file_name);
     }

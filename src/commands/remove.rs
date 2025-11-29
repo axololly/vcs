@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Args as A;
+use eyre::Result;
 
 use crate::{backend::repository::Repository, utils::resolve_wildcard_path};
 
@@ -10,10 +11,11 @@ pub struct Args {
     paths: Vec<PathBuf>
 }
 
-pub fn parse(args: Args) -> eyre::Result<()> {
+pub fn parse(args: Args) -> Result<()> {
     let resolved_paths = args.paths
         .iter()
-        .flat_map(|p| resolve_wildcard_path(p));
+        .flat_map(resolve_wildcard_path)
+        .flatten();
 
     let mut repo = Repository::load()?;
 

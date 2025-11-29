@@ -17,6 +17,54 @@ Categories are as follows:
 - `Fixed` for any bug fixes
 - `Security` in case of vulnerabilities
 
+## v0.3.0
+
+This isn't a full list because I decided to not make incremental commits and instead do one giant commit with each version. Horrible idea, but here you go.
+
+### Added
+
+- Added `asc cat` and `asc ls` to list directory contents and view files
+- Added an undo-redo stack accessible through `asc undo`, `asc redo` and `asc log`
+- Added a way to clean up unreferenced commits with `asc clean`
+- Added `DisplaySeq` for printing a sequence like `Vec` with every item using `Display` instead of `Debug`
+- Added `Repository::stashes` and `asc stash` for stashing states
+- Added `asc trash` for moving commits to the trash
+- Added `asc update` that operates the same as `fossil addremove`
+- Added `asc modify` to modify a commit in-place, but not changing its hash
+- Added `Repository::replace_cwd_with_snapshot` to implement the behaviour of `asc switch` and `asc stash apply|pop`
+- Added merging two branches with `asc merge`
+    - Merge conflicts operate like Git where the valid files are staged but the conflicting files are unstaged
+
+### Changed
+
+- `Link` now uses `BTreeSet` instead of `Vec` for storing links
+- `Display` for `CommitHash` outputs the hash shrunk to 10 characters
+    - The full hash is accessible through `Debug` or `CommitHash::full`
+- `CommitHash` is now `ObjectHash` to be generic across commits and stashes
+- The raw `ObjectHash` is dumped and loaded directly, instead of through its string representation
+- The `editor` argument to `asc commit` is not positional anymore
+- `Commit` has become `Snapshot` to be generic across commits and stashes
+- `Snapshot`'s loading and dumping functionality is now the responsibility of `Repository`
+- `Snapshot::from_paths` has been replaced by `Repository::snapshot_from_paths`
+- `Tree` is now `Graph` because the data structure is not technically a tree
+- `Snapshot` now holds a "pointer" to each file's content to reduce memory overhead, which is now stored as a separate immutable object
+- `Snapshot` is loaded and dumped directly
+- `ProjectInfo` is loaded and dumped directly
+- `Repository::snapshot_history` has been replaced with `Repository::history`
+- `asc clean` also clears out the trash bin
+
+### Removed
+
+- `thiserror` is not used anymore in favour of `eyre!`
+- Removed IO functionality for `Snapshot`
+- Removed `SnapshotHeader` (originally `CommitHeader`)
+- Removed unnecessary conversion of `PathBuf <-> String` when saving a repository
+- `Graph` no longer holds the children of each snapshot
+
+### Fixed
+
+- Code previously didn't compile because of declaring a module that didn't exist
+
 ## v0.2.0
 
 ### Added

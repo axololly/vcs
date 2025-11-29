@@ -1,8 +1,7 @@
-use std::str::FromStr;
-
 use clap::Args as A;
+use eyre::Result;
 
-use crate::backend::{hash::CommitHash, repository::Repository};
+use crate::backend::{action::Action, repository::Repository};
 
 #[derive(A)]
 pub struct Args {
@@ -11,25 +10,40 @@ pub struct Args {
     version: String
 }
 
-pub fn parse(args: Args) -> eyre::Result<()> {
+pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
+
+    if repo.cwd_differs_from_current()? {
+        println!("Cannot switch versions with unsaved changes.");
+    }
+
+    let previous_hash = repo.current_hash;
 
     let new_hash = match repo.branches.get(&args.version) {
         Some(&hash) => hash,
-        None => CommitHash::from_str(&args.version)?
+        None => repo.normalise_version(&args.version)?
     };
 
-    let before = repo.current_branch()
+    let before = repo.branch_from_hash(previous_hash)
         .map(String::from)
-        .unwrap_or(format!("{}", repo.current_hash));
+        .unwrap_or(format!("{}", previous_hash));
+
+    let after = repo.branch_from_hash(new_hash)
+        .map(String::from)
+        .unwrap_or(format!("{}", new_hash));
+
+    repo.replace_cwd_with_snapshot(&repo.fetch_snapshot(new_hash)?)?;
+
+    repo.action_history.push(
+        Action::SwitchVersion {
+            before: previous_hash,
+            after: new_hash
+        }
+    );
 
     repo.current_hash = new_hash;
-
+    
     repo.save()?;
-
-    let after = repo.current_branch()
-        .map(String::from)
-        .unwrap_or(format!("{}", repo.current_hash));
 
     println!("Switched versions: {before} -> {after}");
 

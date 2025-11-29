@@ -1,48 +1,32 @@
-use std::{fs::File, io::{self, Write}, path::Path};
+use std::{collections::HashMap, io::Write, path::Path};
 
+use eyre::Result;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
-// To be saved in `<root>/info`.
+use crate::{backend::{hash::ObjectHash, stash::Stash}, utils::{create_file, open_file}};
+
 #[derive(Deserialize, Serialize)]
 pub struct ProjectInfo {
     pub project_name: String,
     pub current_user: String,
-
-    // Vec<(name, hash)>
-    pub branches: Vec<(String, String)>,
-
-    // Hash as string
-    pub current_hash: String
+    pub branches: HashMap<String, ObjectHash>,
+    pub current_hash: ObjectHash,
+    pub stashes: Vec<Stash>
 }
-
-#[derive(Debug, Error)]
-pub enum ProjectInfoError {
-    #[error("failed interaction with disk")]
-    IO(#[from] io::Error),
-
-    #[error("failed to serialise information")]
-    Serialise(#[from] rmp_serde::encode::Error),
-
-    #[error("failed to deserialise information")]
-    Deserialise(#[from] rmp_serde::decode::Error)
-}
-
-pub type Result<T> = std::result::Result<T, ProjectInfoError>;
 
 impl ProjectInfo {
-    pub fn from_file(path: &Path) -> Result<ProjectInfo > {
-        let fp = File::open(path)?;
+    pub fn from_file(path: impl AsRef<Path>) -> Result<ProjectInfo> {
+        let fp = open_file(path)?;
 
         let info = rmp_serde::from_read(fp)?;
 
         Ok(info)
     }
 
-    pub fn to_file(&self, path: &Path) -> Result<()> {
+    pub fn to_file(&self, path: impl AsRef<Path>) -> eyre::Result<()> {
         let bytes = rmp_serde::to_vec(self)?;
         
-        let mut fp = File::create(path)?;
+        let mut fp = create_file(path)?;
 
         fp.write_all(&bytes)?;
 

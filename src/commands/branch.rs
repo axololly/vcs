@@ -1,6 +1,6 @@
 use clap::Subcommand;
 use color_eyre::owo_colors::OwoColorize;
-use eyre::eyre;
+use eyre::{Result, bail};
 
 use crate::backend::repository::Repository;
 
@@ -31,10 +31,14 @@ pub enum Subcommands {
     },
 
     /// List all the branches in the repository.
-    List
+    List {
+        /// Include the hashes each branch points to.
+        #[arg(short, long)]
+        verbose: bool
+    }
 }
 
-pub fn parse(command: Subcommands) -> eyre::Result<()> {
+pub fn parse(command: Subcommands) -> Result<()> {
     let mut repo = Repository::load()?;
     
     use Subcommands::*;
@@ -51,19 +55,17 @@ pub fn parse(command: Subcommands) -> eyre::Result<()> {
 
         New { name } => {
             if repo.branches.contains_key(&name) {
-                return Err(eyre!("branch {name:?} already exists"));
+                bail!("branch {name:?} already exists");
             }
 
             println!("Created new branch: {name}");
 
             repo.branches.insert(name, repo.current_hash);
-
-            repo.save()?;
         }
 
         Rename { old, new } => {
             let Some(commit_hash) = repo.branches.remove(&old) else {
-                return Err(eyre!("branch {old:?} does not exist"))
+                bail!("branch {old:?} does not exist");
             };
 
             println!("Renamed: {old} -> {new}");
@@ -73,27 +75,34 @@ pub fn parse(command: Subcommands) -> eyre::Result<()> {
 
         Delete { name } => {
             let Some(was_pointing_to) = repo.branches.remove(&name) else {
-                return Err(eyre!("branch {name:?} does not exist"));
+                bail!("branch {name:?} does not exist");
             };
 
             println!("Branch {name:?} no longer points to {was_pointing_to}.");
         }
 
-        List => {
+        List { verbose } => {
             if repo.is_head_detached() {
                 println!("{}", format!(" * HEAD detached at {}", repo.current_hash).green());
             }
 
             for (branch_name, &commit_hash) in &repo.branches {
+                let mut s = format!(" * {branch_name}");
+
+                if verbose {
+                    s = format!("{s} ({commit_hash})");
+                }
+                
                 if repo.current_hash == commit_hash {
-                    println!("{}", format!(" * {branch_name}").green());
+                    s = format!("{}", s.green());
                 }
-                else {
-                    println!(" * {branch_name}");
-                }
+                
+                println!("{s}")
             }
         }
     }
+
+    repo.save()?;
 
     Ok(())
 }

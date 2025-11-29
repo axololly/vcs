@@ -1,5 +1,7 @@
 pub mod action;
-pub mod commit;
 pub mod hash;
 pub mod repository;
-pub mod tree;
+pub mod snapshot;
+pub mod stash;
+pub mod graph;
+pub mod trash;

@@ -1,6 +1,7 @@
 use std::{env::current_dir, path::PathBuf};
 
 use clap::Args as A;
+use eyre::Result;
 
 use crate::backend::repository::Repository;
 
@@ -21,7 +22,7 @@ pub struct Args {
     author: Option<String>
 }
 
-pub fn parse(args: Args) -> eyre::Result<()> {
+pub fn parse(args: Args) -> Result<()> {
     let root_dir = args.directory.unwrap_or(current_dir()?);
 
     let dir_name = root_dir
