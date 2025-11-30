@@ -80,7 +80,7 @@ fn resolve_stash<'a>(repo: &'a Repository, id: Option<&str>) -> Result<(usize, &
         Ok((repo.stashes.len() - 1, topmost))
     }
     else {
-        bail!("no stashes in the repository")
+        bail!("no stashes in the repository.")
     }
 }
 
@@ -104,18 +104,14 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
                 }
             )?;
 
-            let snapshot = repo.snapshot_from_paths(
-                repo.staged_files.clone(),
+            let snapshot = repo.capture_current_state(
                 repo.current_user.clone(),
                 message
             )?;
 
-            repo.save_snapshot(&snapshot)?;
-
             let stash = Stash {
                 snapshot: snapshot.hash,
                 basis: repo.current_hash,
-                staged_files: repo.staged_files.clone()
             };
 
             repo.stashes.push(stash);
@@ -127,7 +123,7 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
             let stash_id = repo.normalise_stash_hash(&str_hash)?;
 
             let Some(index) = repo.stashes.iter().position(|s| s.snapshot == stash_id) else {
-                bail!("no hash found for {str_hash:?}")
+                bail!("no hash found for {str_hash:?}.")
             };
 
             let removed_id = repo.stashes.remove(index).snapshot;

@@ -1,4 +1,5 @@
 mod add;
+mod blame;
 mod branch;
 mod cat;
 mod clean;
@@ -14,6 +15,7 @@ mod log;
 mod rebase;
 mod redo;
 mod remove;
+mod tag;
 mod trash;
 mod stash;
 mod switch;
@@ -98,7 +100,14 @@ pub enum Commands {
     Modify(modify::Args),
 
     /// Change the parent of a snapshot in the repository.
-    Rebase(rebase::Args)
+    Rebase(rebase::Args),
+
+    /// See which user in the repository modified each line in a file.
+    Blame(blame::Args),
+
+    /// Alias a snapshot in the repository.
+    #[command(subcommand)]
+    Tag(tag::Subcommands)
 }
 
 pub fn main() -> eyre::Result<()> {
@@ -128,5 +137,7 @@ pub fn main() -> eyre::Result<()> {
         Trash(subcommand) => trash::parse(subcommand),
         Modify(args) => modify::parse(args),
         Rebase(args) => rebase::parse(args),
+        Blame(args) => blame::parse(args),
+        Tag(subcommand) => tag::parse(subcommand)
     }
 }

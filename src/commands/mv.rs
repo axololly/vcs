@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Args as A;
-use eyre::{Result, eyre};
+use eyre::Result;
 
 use crate::{backend::repository::Repository, unwrap};
 
@@ -19,10 +19,13 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    let index = repo.staged_files
-        .iter()
-        .position(|p| p == &args.old)
-        .ok_or(eyre!("path is not currently being tracked in repository."))?;
+    let index = unwrap!(
+        repo.staged_files
+            .iter()
+            .position(|p| p == &args.old),
+        
+        "path is not currently being tracked in repository."
+    );
 
     repo.staged_files.remove(index);
 

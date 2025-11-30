@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet, VecDeque}, path::PathBuf};
 use chrono::Local;
 use clap::Args as A;
 
-use eyre::{Result, bail, eyre};
+use eyre::{Result, bail};
 use sha1::{Digest, Sha1};
 use threeway_merge::{merge_strings, MergeOptions};
 
@@ -114,7 +114,7 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    if repo.cwd_differs_from_current()? {
+    if repo.has_unsaved_changes()? {
         bail!("cannot merge with unsaved changes");
     }
 
@@ -127,13 +127,15 @@ pub fn parse(args: Args) -> Result<()> {
         let u = repo.current_hash;
         let v = target;
 
-        let ancestry = find_closest_common_ancestor(&repo.history, u, v)
-            .ok_or(eyre!("could not identify a common ancestor for snapshots {u} and {v}"))?;
+        let ancestry = unwrap!(
+            find_closest_common_ancestor(&repo.history, u, v),
+            "could not identify a common ancestor for snapshots {u} and {v}"
+        );
 
         match ancestry {
             // Fast-forward, but we're already at the child, so no changes made
             Ancestry::Inclusive(parent) if parent != repo.current_hash => {
-                println!("Already on the child of the fast-forward, therefore no changes have been made.");
+                println!("already on the child of the fast-forward, therefore no changes have been made.");
                 
                 return Ok(());
             }
@@ -298,7 +300,10 @@ pub fn parse(args: Args) -> Result<()> {
 
     repo.save_snapshot(&snapshot)?;
 
-    repo.history.links.insert(snapshot.hash, HashSet::from([repo.current_hash, target]));
+    repo.history.remove(snapshot.hash);
+
+    repo.history.insert(snapshot.hash, repo.current_hash);
+    repo.history.insert(snapshot.hash, target);
 
     if let Some(name) = repo.current_branch() {
         repo.branches.insert(name.to_string(), snapshot.hash);

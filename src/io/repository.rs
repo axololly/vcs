@@ -33,14 +33,25 @@ fn get_ignore_matcher(root_dir: impl AsRef<Path>) -> Result<Gitignore> {
 }
 
 impl Repository {
+    /// Create a new repository in a given directory.
+    /// 
+    /// This currently requires that:
+    /// - `root` is a directory
+    /// - `root` does not contain a folder called `.asc` (where the repository lives)
+    /// 
+    /// This returns the [`Repository`] that was created.
     pub fn create_new(root: impl AsRef<Path>, author: String, project_name: String) -> Result<Repository> {
         let root_dir = root.as_ref().canonicalize()?;
+
+        if !root_dir.is_dir() {
+            bail!("{} is not a directory.", root_dir.display());
+        }
         
         // Where everything will live.
         let content_dir = root_dir.join(".asc").to_path_buf();
 
-        if content_dir.exists() {
-            bail!("root directory {} already exists", content_dir.display());
+        if content_dir.exists() && content_dir.is_dir() {
+            bail!("root directory {} already contains a repository. Remove it and rerun the command.", root_dir.display());
         }
 
         fs::create_dir(&content_dir)?;
@@ -48,9 +59,9 @@ impl Repository {
         // Where the staged files will go.
         let mut fp = create_file(content_dir.join("index"))?;
 
-        let empty: Vec<String> = vec![];
+        let staged_files: Vec<PathBuf> = vec![];
 
-        fp.write_all(&rmp_serde::to_vec(&empty)?)?;
+        fp.write_all(&rmp_serde::to_vec(&staged_files)?)?;
 
         // Where the action history will go.
         let mut fp = create_file(content_dir.join("history"))?;
@@ -58,6 +69,13 @@ impl Repository {
         let action_history = ActionHistory::new();
 
         fp.write_all(&rmp_serde::to_vec(&action_history)?)?;
+
+        // Where the tags will go.
+        let mut fp = open_file(content_dir.join("tags"))?;
+
+        let tags: HashMap<String, ObjectHash> = HashMap::new();
+
+        fp.write_all(&rmp_serde::to_vec(&tags)?)?;
 
         // Where each snapshot's data will go.
         let blobs_dir = content_dir.join("blobs");
@@ -93,6 +111,13 @@ impl Repository {
         // Where the repository information will go.
         info.to_file(content_dir.join("info"))?;
 
+        // Where the trash will go.
+        let mut fp = create_file(content_dir.join("trash"))?;
+
+        let trash = Trash::new();
+
+        fp.write_all(&rmp_serde::to_vec(&trash)?)?;
+
         // An ignore file for the repository.
         create_file(root_dir.join(".ascignore"))?;
 
@@ -105,9 +130,10 @@ impl Repository {
             current_user: info.current_user,
             branches,
             current_hash: ObjectHash::root(),
-            staged_files: vec![],
+            staged_files,
             stashes: vec![],
-            trash: Trash::new()
+            trash,
+            tags
         };
 
         let root_snapshot = Snapshot {
@@ -123,11 +149,14 @@ impl Repository {
         Ok(repo)
     }
 
+    /// Load the repository in the current directory, searching
+    /// upwards from the current working directory until a directory
+    /// containing an `.acs` directory is found.
     pub fn load() -> Result<Repository> {
-        let root = current_dir()?;
+        let start = current_dir()?;
 
-        let Some(root_dir) = locate_root_dir(&root)? else {
-            bail!("invalid root directory: {}", root.display());
+        let Some(root_dir) = locate_root_dir(&start)? else {
+            bail!("no .acs directory found when searching recursively from: {}", start.display());
         };
 
         let content_dir = root_dir.join(".asc");
@@ -147,6 +176,9 @@ impl Repository {
             entries: rmp_serde::from_read(fp)?
         };
 
+        let fp = open_file(content_dir.join("tags"))?;
+        let tags: HashMap<String, ObjectHash> = rmp_serde::from_read(fp)?;
+
         let repo = Repository {
             project_name: info.project_name,
             ignore_matcher: get_ignore_matcher(&root_dir)?,
@@ -158,12 +190,14 @@ impl Repository {
             current_user: info.current_user,
             staged_files,
             stashes: info.stashes,
-            trash
+            trash,
+            tags
         };
 
         Ok(repo)
     }
 
+    /// Save the current state of the repository to disk.
     pub fn save(&self) -> Result<()> {
         let info = ProjectInfo {
             project_name: self.project_name.clone(),
@@ -185,11 +219,9 @@ impl Repository {
         for path in &self.staged_files {
             let full = path.canonicalize()?;
 
-            let relative = pathdiff::diff_paths(full, &cwd);
+            let relative = pathdiff::diff_paths(full, &cwd).unwrap();
 
-            if let Some(rel) = relative {
-                index.push(rel);
-            }
+            index.push(relative);
         }
 
         let mut fp = create_file(content_dir.join("index"))?;
@@ -203,20 +235,29 @@ impl Repository {
         let mut fp = open_file(content_dir.join("trash"))?;
         
         fp.write_all(&rmp_serde::to_vec(&self.trash.entries)?)?;
+
+        let mut fp = open_file(content_dir.join("trash"))?;
+        
+        fp.write_all(&rmp_serde::to_vec(&self.trash.entries)?)?;
         
         Ok(())
     }
 }
 
 impl Repository {
+    /// Get the directory the repository operates in.
     pub fn main_dir(&self) -> PathBuf {
         self.root_dir.join(".asc")
     }
 
+    /// Get the directory where data in the repository is stored.
+    /// 
+    /// Fundamentally identical to `.git/objects`.
     pub fn blobs_dir(&self) -> PathBuf {
         self.main_dir().join("blobs")
     }
     
+    /// Convert an [`ObjectHash`] to its location on disk.
     pub fn hash_to_path(&self, hash: ObjectHash) -> PathBuf {
         let full = hash.full();
 
@@ -227,6 +268,7 @@ impl Repository {
             .join(rest)
     }
     
+    /// Fetch a `String` from the repository, addressed by its hash.
     pub fn fetch_string_content(&self, content_hash: ObjectHash) -> Result<String> {
         let path = self.hash_to_path(content_hash);
         
@@ -245,6 +287,7 @@ impl Repository {
         Ok(content)
     }
 
+    /// Fetch a [`Snapshot`] from the repository, addressed by its hash.
     pub fn fetch_snapshot(&self, snapshot_hash: ObjectHash) -> Result<Snapshot> {
         let path = self.hash_to_path(snapshot_hash);
         
@@ -253,10 +296,12 @@ impl Repository {
         Ok(rmp_serde::from_read(fp)?)
     }
 
+    /// Fetch the [`Snapshot`] the HEAD is currently on from the repository.
     pub fn fetch_current_snapshot(&self) -> Result<Snapshot> {
         self.fetch_snapshot(self.current_hash)
     }
 
+    /// Save a string as a compressed blob to disk and return the hash used to load it.
     pub fn save_string_content(&self, content: &str) -> Result<ObjectHash> {
         let hash = hash_raw_bytes(content);
 
@@ -270,6 +315,7 @@ impl Repository {
         Ok(hash)
     }
 
+    /// Save a snapshot as a compressed blob to disk.
     pub fn save_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
         let bytes = rmp_serde::to_vec(snapshot)?;
         
@@ -283,19 +329,22 @@ impl Repository {
         Ok(())
     }
 
-    pub fn snapshot_from_paths(&self, paths: Vec<PathBuf>, author: String, message: String) -> Result<Snapshot> {
+    /// Assemble a [`Snapshot`] from the repository's tracked files.
+    /// 
+    /// This 
+    pub fn capture_current_state(&self, author: String, message: String) -> Result<Snapshot> {
         let mut files = HashMap::new();
         
         let mut snapshot_hasher = Sha1::new();
 
-        for path in paths {
+        for path in &self.staged_files {
             let content = fs::read_to_string(&path)?;
 
             let hash = self.save_string_content(&content)?;
 
-            snapshot_hasher.update(*hash);
+            snapshot_hasher.update(hash.as_bytes());
 
-            files.insert(path, hash);
+            files.insert(path.clone(), hash);
         }
 
         let raw_snapshot_hash: [u8; 20] = snapshot_hasher.finalize().into();
@@ -307,15 +356,15 @@ impl Repository {
             timestamp: Local::now(),
             files
         };
+
+        self.save_snapshot(&snapshot)?;
         
         Ok(snapshot)
     }
 }
 
 impl Repository {
-    pub fn cwd_differs_from_current(&self) -> Result<bool> {
-        let latest_snapshot = self.fetch_current_snapshot()?;
-
+    fn cwd_differs_from_snapshot(&self, snapshot: &Snapshot) -> Result<bool> {
         for path in &self.staged_files {
             if !path.exists() {
                 return Ok(true);
@@ -328,7 +377,7 @@ impl Repository {
 
             let current_content_hash = hash_raw_bytes(&current_content);
 
-            let Some(&previous_content_hash) = latest_snapshot.files.get(path) else {
+            let Some(&previous_content_hash) = snapshot.files.get(path) else {
                 return Ok(true)
             };
 
@@ -340,8 +389,39 @@ impl Repository {
         Ok(false)
     }
 
+    /// Check if the repository has unsaved changes.
+    /// 
+    /// This checks both the current snapshot and any
+    /// snapshots in the stash to ensure data is safe.
+    pub fn has_unsaved_changes(&self) -> Result<bool> {
+        let current = self.fetch_current_snapshot()?;
+
+        // If the CWD matches the current snapshot,
+        // no changes are made, and content is safe.
+        if !self.cwd_differs_from_snapshot(&current)? {
+            return Ok(false);
+        }
+
+        // If the CWD matches a snapshot in the stash,
+        // no changes are made, and content is safe.
+        for hash in self.stashes.iter().map(|s| s.snapshot) {
+            let snapshot = self.fetch_snapshot(hash)?;
+
+            if !self.cwd_differs_from_snapshot(&snapshot)? {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Replace the state of the current working directory with that
+    /// from another [`Snapshot`].
+    /// 
+    /// This is used to switch the repository to a different version,
+    /// and will fail if there are unsaved changes.
     pub fn replace_cwd_with_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
-        if self.cwd_differs_from_current()? {
+        if self.has_unsaved_changes()? {
             bail!("cannot change snapshots with unsaved changes.");
         }
 

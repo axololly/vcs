@@ -1,9 +1,9 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use clap::Args as A;
-use eyre::{Result, bail, eyre};
+use eyre::{Result, bail};
 
-use crate::backend::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository};
+use crate::{backend::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository}, unwrap};
 
 #[derive(A)]
 pub struct Args {
@@ -35,6 +35,10 @@ pub fn parse(args: Args) -> Result<()> {
 
     let current = repo.normalise_version(&args.snapshot)?;
 
+    if current.is_root() {
+        bail!("cannot rebase the root snapshot.");
+    }
+
     let new_parent = repo.normalise_version(&args.new_parent)?;
 
     if current == new_parent {
@@ -46,17 +50,10 @@ pub fn parse(args: Args) -> Result<()> {
         bail!("cannot rebase {current} onto {new_parent} because {current} is a direct child of {new_parent}");
     }
 
-    let parents = repo
-        .history
-        .links
-        .get_mut(&current)
-        .ok_or(eyre!("{current} does not exist in the repository."))?;
-
-    let previous_parents = parents.clone();
-
-    parents.clear();
-
-    parents.insert(new_parent);
+    let previous_parents = unwrap!(
+        repo.history.upsert(current, HashSet::from([new_parent])),
+        "snapshot {current} does not exist in the repository."
+    );
 
     repo.action_history.push(
         Action::RebaseSnapshot {

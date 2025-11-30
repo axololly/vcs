@@ -1,5 +1,5 @@
 use clap::Args as A;
-use eyre::Result;
+use eyre::{Result, bail};
 
 use crate::backend::{action::Action, repository::Repository};
 
@@ -13,8 +13,8 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    if repo.cwd_differs_from_current()? {
-        println!("Cannot switch versions with unsaved changes.");
+    if repo.has_unsaved_changes()? {
+        bail!("cannot switch versions with unsaved changes.");
     }
 
     let previous_hash = repo.current_hash;

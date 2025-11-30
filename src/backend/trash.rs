@@ -9,6 +9,7 @@ pub struct Entry {
     pub hash: ObjectHash
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct Trash {
     pub entries: Vec<Entry>
 }

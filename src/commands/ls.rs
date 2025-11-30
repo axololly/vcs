@@ -1,8 +1,8 @@
 use clap::Args as A;
-use eyre::{Result, eyre};
+use eyre::Result;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
-use crate::backend::repository::Repository;
+use crate::{backend::repository::Repository, unwrap};
 
 enum Entry<'name> {
     File(&'name str),
@@ -93,9 +93,10 @@ fn from_version(repo: &Repository, version: &str, patterns: Option<Vec<String>>,
     let mut files: Vec<&str> = vec![];
     
     for raw_path in snapshot.files.keys() {
-        let str_path = raw_path
-            .to_str()
-            .ok_or(eyre!("invalid utf8 in path: {}", raw_path.display()))?;
+        let str_path = unwrap!(
+            raw_path.to_str(),
+            "invalid utf8 in path: {}", raw_path.display()
+        );
 
         if !include_hidden && str_path.starts_with(".") {
             continue;
@@ -115,7 +116,10 @@ fn from_cwd(repo: &Repository, patterns: Option<Vec<String>>, include_hidden: bo
     let mut files: Vec<&str> = vec![];
 
     for raw_path in &repo.staged_files {
-        let str_path = raw_path.to_str().ok_or(eyre!("invalid utf8 in path: {}", raw_path.display()))?;
+        let str_path = unwrap!(
+            raw_path.to_str(),
+            "invalid utf8 in path: {}", raw_path.display()
+        );
 
         if !include_hidden && str_path.starts_with(".") {
             continue;

@@ -23,7 +23,7 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    if !repo.cwd_differs_from_current()? {
+    if !repo.has_unsaved_changes()? {
         bail!("no changes to document in the upcoming commit");
     }
 
@@ -46,7 +46,7 @@ pub fn parse(args: Args) -> Result<()> {
 
     let author = repo.current_user.to_string();
 
-    let snapshot = repo.snapshot_from_paths(repo.staged_files.clone(), author, message)?;
+    let snapshot = repo.capture_current_state(author, message)?;
 
     if let Some(new_branch) = args.branch {
         if let Some(previous_hash) = repo.branches.get(&new_branch) {

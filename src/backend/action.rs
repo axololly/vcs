@@ -4,12 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{backend::{hash::ObjectHash, snapshot::Snapshot}, utils::DisplaySeq};
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct Change<T> {
-    before: T,
-    after: T
-}
-
+/// Represents an action made on the repository.
+/// 
+/// These are (currently) all reversible.
 #[derive(Clone, Debug, Display, Deserialize, Serialize, PartialEq)]
 pub enum Action {
     // Snapshots
@@ -62,7 +59,7 @@ pub enum Action {
     }
 }
 
-
+/// A stack of [`Action`] enum members with undo and redo capabilities.
 #[derive(Default, Deserialize, Serialize)]
 pub struct ActionHistory {
     inner: Vec<Action>,
@@ -70,6 +67,7 @@ pub struct ActionHistory {
 }
 
 impl ActionHistory {
+    /// Create a new [`ActionHistory`].
     pub fn new() -> ActionHistory {
         ActionHistory {
             inner: vec![],
@@ -77,6 +75,11 @@ impl ActionHistory {
         }
     }
 
+    /// Add a new [`Action`] to the history.
+    /// 
+    /// ### Warning
+    /// This truncates the internal [`Action`] stack,
+    /// removing the ability to redo any undone actions.
     pub fn push(&mut self, action: Action) {
         self.inner.truncate(self.index);
         
@@ -85,10 +88,18 @@ impl ActionHistory {
         self.index += 1;
     }
 
+    /// Get the topmost [`Action`] on the stack.
     pub fn current(&self) -> Option<&Action> {
-        (self.index > 0).then(|| &self.inner[self.index - 1])
+        if self.index == 0 {
+            return None;
+        }
+        
+        Some(&self.inner[self.index - 1])
     }
 
+    /// Undo an [`Action`] in the history, returning the undone action.
+    /// 
+    /// This is only permanently lost if [`ActionHistory::push`] is called.
     pub fn undo(&mut self) -> Option<&Action> {
         if self.index == 0 {
             return None;
@@ -99,6 +110,7 @@ impl ActionHistory {
         Some(&self.inner[self.index])
     }
 
+    /// Redo an [`Action`] in the history, returning the redone action.
     pub fn redo(&mut self) -> Option<&Action> {
         if self.index + 1 > self.inner.len() {
             return None;
@@ -109,12 +121,14 @@ impl ActionHistory {
         self.current()
     }
 
+    /// Clear the history.
     pub fn clear(&mut self) {
         self.inner.clear();
 
         self.index = 0;
     }
 
+    /// Get a reference to the internal stack.
     pub fn as_vec(&self) -> &Vec<Action> {
         &self.inner
     }

@@ -2,12 +2,15 @@ use crate::{backend::hash::ObjectHash, unwrap};
 
 use std::{fmt, fs::{self, File}, path::{Path, PathBuf}, process::Command};
 
-use eyre::{bail, eyre, Context};
+use eyre::{Context, Result, bail, eyre};
 use glob::glob;
 use miniz_oxide::{deflate::compress_to_vec, inflate::decompress_to_vec};
 use sha1::{Digest, Sha1};
 
-pub fn resolve_wildcard_path(root: impl AsRef<Path>) -> eyre::Result<Vec<PathBuf>> {
+/// Expand a path with wildcards into all possible matches.
+/// 
+/// This wraps the [`glob::glob`] function to make it more ergonomic.
+pub fn resolve_wildcard_path(root: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
     let root = root.as_ref();
     
     let start = unwrap!(root.to_str(), "invalid utf8 in path: {}", root.display());
@@ -23,17 +26,20 @@ pub fn resolve_wildcard_path(root: impl AsRef<Path>) -> eyre::Result<Vec<PathBuf
     Ok(result)
 }
 
+/// Compress data using [`miniz_oxide::deflate::compress_to_vec`].
 pub fn compress_data(input: impl AsRef<[u8]>) -> Vec<u8> {
     compress_to_vec(input.as_ref(), 6)
 }
 
-pub fn decompress_data(input: impl AsRef<[u8]>) -> eyre::Result<Vec<u8>> {
+/// Decompress data using [`miniz_oxide::inflate::decompress_to_vec`].
+pub fn decompress_data(input: impl AsRef<[u8]>) -> Result<Vec<u8>> {
     let buf = decompress_to_vec(input.as_ref())
         .map_err(|e| eyre!("failed to decompress data: {e}"))?;
 
     Ok(buf)
 }
 
+/// Compute a SHA-1 hash from the given bytes.
 pub fn hash_raw_bytes(input: impl AsRef<[u8]>) -> ObjectHash {
     let mut hasher = Sha1::new();
 
@@ -44,7 +50,15 @@ pub fn hash_raw_bytes(input: impl AsRef<[u8]>) -> ObjectHash {
     raw_hash.into()
 }
 
-pub fn remove_path(path: impl AsRef<Path>, root: impl AsRef<Path>) -> eyre::Result<()> {
+/// Remove a path, and also recursively remove any empty directories.
+/// 
+/// ### Example
+/// 
+/// In the case of `a/b/c.txt`, calling `remove_path` would remove `c.txt`,
+/// but then `a/b/` would be empty, so `b/` gets removed, making `a/` empty,
+/// which also gets removed. Once the root is reached (typically `.`), the
+/// process stops.
+pub fn remove_path(path: impl AsRef<Path>, root: impl AsRef<Path>) -> Result<()> {
     fs::remove_file(&path)?;
 
     loop {
@@ -64,7 +78,11 @@ pub fn remove_path(path: impl AsRef<Path>, root: impl AsRef<Path>) -> eyre::Resu
     }
 }
 
-pub fn open_file(path: impl AsRef<Path>) -> eyre::Result<File> {
+/// Open a file on disk.
+/// 
+/// This wraps [`File::open`] to also include the path that was opened
+/// in the case of an error.
+pub fn open_file(path: impl AsRef<Path>) -> Result<File> {
     File::open(&path)
         .wrap_err_with(|| format!(
             "failed to open path {}",
@@ -73,31 +91,46 @@ pub fn open_file(path: impl AsRef<Path>) -> eyre::Result<File> {
     )
 }
 
-pub fn create_file(path: impl AsRef<Path>) -> eyre::Result<File> {
+/// Open a file on disk.
+/// 
+/// This wraps [`File::create`] to also include the path that was opened
+/// in the case of an error.
+pub fn create_file(path: impl AsRef<Path>) -> Result<File> {
     File::create(&path)
         .wrap_err_with(|| format!(
-            "failed to open path {}",
+            "failed to create path {}",
             path.as_ref().display()
         )
     )
 }
 
-pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path) -> eyre::Result<String> {
+/// Open an interactive editor, wait for the process to end, then return
+/// the content of the file after.
+/// 
+/// To spawn a process on Windows, this uses `cmd`, while on Unix, it uses `bash`.
+/// Anything else and you get a special error message :)
+pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path) -> Result<String> {
     // TODO: Fill it with a template like Git and Fossil have
     
     File::create(snapshot_message_path)?;
 
     let mut editor_cmd = if cfg!(windows) {
         let mut cmd = Command::new("cmd");
-        
-        cmd.arg(format!("/c {editor} '{}'", snapshot_message_path.display()));
+
+        cmd
+            .arg("/c")
+            .arg(editor.to_string())
+            .arg(snapshot_message_path.display().to_string());
 
         cmd
     }
     else if cfg!(unix) {
         let mut cmd = Command::new("bash");
         
-        cmd.arg(format!("-c {editor} '{}'", snapshot_message_path.display()));
+        cmd
+            .arg("-c")
+            .arg(editor.to_string())
+            .arg(snapshot_message_path.display().to_string());
 
         cmd
     }

@@ -1,9 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-
 use clap::Subcommand;
 use eyre::{Result, bail, eyre};
 
-use crate::backend::{hash::ObjectHash, repository::Repository, trash::{Entry, Trash}};
+use crate::backend::{graph::Graph, hash::ObjectHash, repository::Repository, trash::{Entry, Trash}};
 
 #[derive(Subcommand)]
 pub enum Subcommands {
@@ -29,10 +27,12 @@ pub enum Subcommands {
     }
 }
 
-type Graph = HashMap<ObjectHash, HashSet<ObjectHash>>;
+// type Graph = HashMap<ObjectHash, HashSet<ObjectHash>>;
 
 fn count_subnodes(graph: &Graph, node: ObjectHash) -> usize {
-    graph[&node]
+    graph
+        .get_parents(node)
+        .unwrap()
         .iter()
         .map(|&node| count_subnodes(graph, node))
         .sum()
@@ -41,27 +41,11 @@ fn count_subnodes(graph: &Graph, node: ObjectHash) -> usize {
 fn list_all_subnodes(graph: &Graph, hash: ObjectHash) -> Vec<ObjectHash> {
     let mut v = vec![hash];
     
-    for &child in &graph[&hash] {
+    for &child in graph.get_parents(hash).unwrap() {
         v.extend(&list_all_subnodes(graph, child));
     }
 
     v
-}
-
-fn is_descendant(graph: &Graph, a: ObjectHash, b: ObjectHash) -> bool {
-    let mut queue = VecDeque::new();
-
-    queue.push_back(a);
-
-    while let Some(next) = queue.pop_front() {
-        if next == b {
-            return true;
-        }
-
-        queue.extend(graph[&next].iter());
-    }
-
-    false
 }
 
 enum TrashStatus {
@@ -75,7 +59,7 @@ fn hash_in_trash(hash: ObjectHash, graph: &Graph, trash: &Trash) -> Option<Trash
     }
 
     for Entry { hash: trash_hash, .. } in &trash.entries {
-        if is_descendant(graph, hash, *trash_hash) {
+        if graph.is_descendant(hash, *trash_hash) {
             return Some(TrashStatus::Indirect(*trash_hash));
         }
     }
@@ -87,15 +71,15 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
     let mut repo = Repository::load()?;
 
     let inverse_links = {
-        let mut map: HashMap<ObjectHash, HashSet<ObjectHash>> = HashMap::new();
+        let mut graph = Graph::empty();
 
-        for (&hash, parents) in repo.history.links.iter() {
+        for (&hash, parents) in repo.history.iter() {
             for &parent in parents {
-                map.entry(parent).or_default().insert(hash);
+                graph.insert(hash, parent);
             }
         }
 
-        map
+        graph
     };
 
     use Subcommands::*;
@@ -104,7 +88,67 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
         Add { version } => {
             let hash = repo.normalise_hash(&version)?;
 
+            if hash.is_root() {
+                bail!("cannot trash the root snapshot.");
+            }
+
+            if let Some(status) = hash_in_trash(hash, &repo.history, &repo.trash) {
+                match status {
+                    TrashStatus::Direct => {
+                        bail!("this snapshot is already in the trash.");
+                    }
+
+                    TrashStatus::Indirect(in_trash) => {
+                        bail!("this snapshot in the trash because it is a descendant of the snapshot {in_trash}.");
+                    }
+                }
+            }
+
+            let tags_to_remove: Vec<(&str, ObjectHash)> = repo.tags
+                .iter()
+                .filter_map(|(name, &tag_hash)| {
+                    repo.history
+                        .is_descendant(tag_hash, hash)
+                        .then_some((name.as_str(), tag_hash))
+                })
+                .collect();
+
+            if !tags_to_remove.is_empty() {
+                let mut tag_list = format!("Tagged snapshots ({}):\n", tags_to_remove.len());
+
+                for (name, hash) in &tags_to_remove {
+                    tag_list += &format!(" * {name} -> {hash}\n");
+                }
+
+                let tag_names: Vec<&str> = tags_to_remove
+                    .iter()
+                    .map(|(name, _)| *name)
+                    .collect();
+
+                bail!("trashing this snapshot and its children involves trashing snapshots that have been tagged.\n\n{tag_list}\nTo resolve this, run `asc tag delete {}` to delete the offending tags.", tag_names.join(" "));
+            }
+
             repo.trash.add(hash);
+
+            if repo.history.is_descendant(repo.current_hash, hash) {
+                if repo.has_unsaved_changes()? {
+                    bail!("by trashing {hash}, the HEAD at {} would also be trashed.\n\nNormally, this would move the HEAD back to one of the parents of {hash} to move the HEAD out of the trash. However, there are unsaved changes which would be lost.\n\nTo save these, stash them or introduce a new commit to the repository.", repo.current_hash)
+                }
+
+                let parents = repo.history.get_parents(hash).unwrap();
+
+                let new_hash = parents
+                    .iter()
+                    .next()
+                    .cloned()
+                    .unwrap();
+
+                let new_snapshot = repo.fetch_snapshot(new_hash)?;
+
+                repo.replace_cwd_with_snapshot(&new_snapshot)?;
+
+                repo.current_hash = new_hash;
+            }
 
             println!("Moved snapshot {hash} to the trash!");
 
@@ -162,7 +206,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             for Entry { hash, when } in capped_entries {
                 let mut s = format!(" * {hash}");
                 
-                let count = count_subnodes(&repo.history.links, *hash);
+                let count = count_subnodes(&repo.history, *hash);
 
                 if count > 0 {
                     s = format!("{s} [{when}] (+ {count})");
@@ -199,7 +243,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
 
             println!("Trash - implicitly trashed nodes of {hash}:");
 
-            let subnodes = list_all_subnodes(&repo.history.links, hash);
+            let subnodes = list_all_subnodes(&repo.history, hash);
             
             let capped_subnodes = subnodes
                 .chunks(limit)
@@ -217,6 +261,8 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             }
         }
     }
+
+    repo.save()?;
 
     Ok(())
 }

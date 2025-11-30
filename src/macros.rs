@@ -4,7 +4,7 @@ macro_rules! unwrap {
         #[allow(unused_imports)]
         use eyre::{Context, ContextCompat};
         
-        $result.wrap_err($message)?
+        $result.wrap_err_with(|| format!($message))?
     }};
 
     ($result:expr, $message:expr, $($arg:tt)*) => {{

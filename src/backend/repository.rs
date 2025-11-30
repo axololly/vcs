@@ -1,8 +1,8 @@
 use std::{collections::HashMap, path::{Path, PathBuf}};
 
-use crate::backend::{action::{Action, ActionHistory}, graph::Graph, hash::ObjectHash, snapshot::Snapshot, stash::Stash, trash::Trash};
+use crate::{backend::{action::{Action, ActionHistory}, graph::Graph, hash::ObjectHash, snapshot::Snapshot, stash::Stash, trash::Trash}};
 
-use eyre::{Result, bail, eyre};
+use eyre::{Result, bail};
 use ignore::gitignore::Gitignore;
 
 pub struct Repository {
@@ -16,14 +16,23 @@ pub struct Repository {
     pub staged_files: Vec<PathBuf>,
     pub ignore_matcher: Gitignore,
     pub stashes: Vec<Stash>,
-    pub trash: Trash
+    pub trash: Trash,
+    pub tags: HashMap<String, ObjectHash>
 }
 
 impl Repository {
+    /// Get the branch the repository is currently on.
+    /// 
+    /// This is only found if the `current_hash` points to a branch tip.
+    /// Any other snapshot will result in `None`.
     pub fn current_branch(&self) -> Option<&str> {
         self.branch_from_hash(self.current_hash)
     }
 
+    /// Get the name of a branch from its hash.
+    /// 
+    /// This is only found if the hash points to a branch tip.
+    /// Any other snapshot will result in `None`.
     pub fn branch_from_hash(&self, commit_hash: ObjectHash) -> Option<&str> {
         self.branches
             .iter()
@@ -38,14 +47,14 @@ impl Repository {
             .next()
     }
 
-    /// The head is detached when it doesn't point to the tip of any branch.
+    /// Find if the `current_hash` doesn't point to the tip of any branch.
     pub fn is_head_detached(&self) -> bool {
         self.current_branch().is_none()
     }
 
     fn append_snapshot_internal(&mut self, snapshot: Snapshot, branch_name: Option<String>) -> Result<()> {
-        if !self.cwd_differs_from_current()? {
-            bail!("No changes have been made in the current working directory.");
+        if !self.has_unsaved_changes()? {
+            bail!("no changes have been made in the current working directory.");
         }
 
         self.history.insert(snapshot.hash, self.current_hash);
@@ -68,30 +77,40 @@ impl Repository {
         Ok(())
     }
 
+    /// Append a snapshot to the tip of the current branch,
+    /// moving the branch pointer to point to the added snapshot.
     pub fn append_snapshot(&mut self, snapshot: Snapshot) -> Result<()> {
         self.append_snapshot_internal(snapshot, self.current_branch().map(String::from))
     }
 
+    /// Append a snapshot to the tip of any branch,
+    /// moving that branch's pointer to point to the added snapshot.
     pub fn append_snapshot_to_branch(&mut self, snapshot: Snapshot, branch_name: String) -> Result<()> {
         self.append_snapshot_internal(snapshot, Some(branch_name))
     }
 
+    /// Check if a given path is ignored by the `.ascignore`
+    /// file in the repository, if it is present.
     pub fn is_ignored_path(&self, path: &Path) -> bool {
         self.ignore_matcher.matched(path, path.is_dir()).is_ignore()
     }
 
     fn normalise_hash_internal(&self, iter: impl Iterator<Item = ObjectHash>, needle: &[u8]) -> Option<ObjectHash> {
-        for item in iter {
-            let bytes: &[u8] = item.as_ref();
+        for hash in iter {
+            let bytes: &[u8] = hash.as_bytes();
 
             if bytes.starts_with(needle) {
-                return Some(item);
+                return Some(hash);
             }
         }
 
         None
     }
 
+    /// Convert a smaller hash in string form into its full [`ObjectHash`] version.
+    /// 
+    /// This works only for snapshots. For identifying stash hashes, use
+    /// [`Repository::normalise_stash_hash`].
     pub fn normalise_hash(&self, raw_hash: &str) -> Result<ObjectHash> {
         let as_hex = hex::decode(raw_hash)?;
 
@@ -101,9 +120,7 @@ impl Repository {
 
         let commit_hashes = self
             .history
-            .links
-            .keys()
-            .cloned();
+            .iter_hashes();
 
         if let Some(normalised) = self.normalise_hash_internal(commit_hashes, &as_hex) {
             Ok(normalised)
@@ -113,6 +130,10 @@ impl Repository {
         }
     }
 
+    /// Convert a smaller hash in string form into its full [`ObjectHash`] version.
+    /// 
+    /// This works only for stashes. For identifying snapshot hashes, use
+    /// [`Repository::normalise_hash`].
     pub fn normalise_stash_hash(&self, raw_hash: &str) -> Result<ObjectHash> {
         let as_hex = hex::decode(raw_hash)?;
 
@@ -132,6 +153,9 @@ impl Repository {
         }
     }
 
+    /// Convert a version in string form into its full [`ObjectHash`] version
+    /// by trying to interpret it as a branch name, then trying to interpret
+    /// it as the hash of a snapshot.
     pub fn normalise_version(&self, raw_version: &str) -> Result<ObjectHash> {
         if let Some(&corresponding_hash) = self.branches.get(raw_version) {
             Ok(corresponding_hash)
@@ -156,12 +180,11 @@ impl Repository {
             }
 
             RebaseSnapshot { hash, to, .. } => {
-                let parents = self.history.links.get_mut(&hash)
-                    .ok_or(eyre!("{hash} does not exist in the repository."))?;
+                let previous = self.history.upsert(hash, to);
 
-                parents.clear();
-
-                parents.extend(to.iter());
+                if previous.is_none() {
+                    bail!("{hash} does not exist in the repository")
+                }
             }
 
             ModifySnapshot { after, .. } => {
@@ -190,16 +213,8 @@ impl Repository {
         Ok(())
     }
 
-    pub fn redo_action(&mut self) -> Result<Option<Action>> {
-        let Some(action) = self.action_history.undo().cloned() else {
-            return Ok(None)
-        };
-
-        self.apply_action(action.clone())?;
-
-        Ok(Some(action))
-    }
-
+    /// Undo an [`Action`] on the repository, returning the action
+    /// if any changes were made.
     pub fn undo_action(&mut self) -> Result<Option<Action>> {
         let Some(action) = self.action_history.undo().cloned() else {
             return Ok(None)
@@ -223,5 +238,17 @@ impl Repository {
         self.apply_action(inverse.clone())?;
 
         Ok(Some(inverse))
+    }
+
+    /// Redo an [`Action`] on the repository, returning the action
+    /// if any changes were made.
+    pub fn redo_action(&mut self) -> Result<Option<Action>> {
+        let Some(action) = self.action_history.redo().cloned() else {
+            return Ok(None)
+        };
+
+        self.apply_action(action.clone())?;
+
+        Ok(Some(action))
     }
 }

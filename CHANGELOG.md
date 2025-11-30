@@ -17,6 +17,39 @@ Categories are as follows:
 - `Fixed` for any bug fixes
 - `Security` in case of vulnerabilities
 
+## v0.4.0
+
+### Added
+
+- Documented everything in the repository
+- `ObjectHash::as_bytes` yields the internal bytes of the hash
+- `asc blame` that functions like `git blame`
+- Added `Graph::is_descendant`
+
+### Changed
+
+- Changed some files to use the `unwrap!` macro instead of `.ok_or(eyre!(...))?`
+- Privatised `Graph::links`
+- Removed unnecessary loop in `Graph::remove`
+- Replaced `Repository::cwd_differs_from_current` with `Repository::has_unsaved_changes`
+- Replaced `Repository::snapshot_from_paths` with `Repository::capture_current_state`
+
+### Fixed
+
+- `asc trash` now saves its changes to disk
+- `Repository::has_unsaved_changes` also checks stashed snapshots, which `Repository::cwd_differs_from_current` did not do
+- `Repository::create_new` now asserts that the directory exists
+- Some files would not be created by `Repository::create_new`, which would've broken commands
+- `asc history`'s `--limit` argument was previously ignored
+
+### Removed
+
+- `Change<T>` in `src/backend/action.rs` was unused
+- `ObjectHash` no longer implements `Deref` and `DerefMut`
+- Removed `Stash::staged_files` because it can be accessed on the stash's snapshot's `files` attribute
+- `Repository::snapshot_from_paths` was removed for not saving the snapshot to disk
+
+
 ## v0.3.0
 
 This isn't a full list because I decided to not make incremental commits and instead do one giant commit with each version. Horrible idea, but here you go.
@@ -64,6 +97,7 @@ This isn't a full list because I decided to not make incremental commits and ins
 ### Fixed
 
 - Code previously didn't compile because of declaring a module that didn't exist
+
 
 ## v0.2.0
 

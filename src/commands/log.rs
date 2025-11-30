@@ -17,7 +17,7 @@ pub fn parse(args: Args) -> Result<()> {
     let mut actions = repo.action_history.as_vec().as_slice();
 
     if let Some(limit) = args.limit {
-        actions = &actions[actions.len().saturating_sub(limit) ..];
+        actions = actions.rchunks(limit).next().unwrap();
     }
 
     let Some(current) = repo.action_history.current() else {

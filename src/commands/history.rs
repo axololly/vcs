@@ -1,7 +1,7 @@
 use clap::{Args as A, ValueEnum};
-use eyre::{Result, bail, eyre};
+use eyre::{Result, bail};
 
-use crate::backend::{snapshot::Snapshot, repository::Repository};
+use crate::{backend::{repository::Repository, snapshot::Snapshot}, unwrap};
 
 #[derive(Clone, Copy, ValueEnum)]
 enum Format {
@@ -29,9 +29,10 @@ pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
     let mut current_hash = if let Some(branch) = args.branch {
-        *repo.branches
-            .get(&branch)
-            .ok_or(eyre!("branch {branch:?} does not exist"))?
+        *unwrap!(
+            repo.branches.get(&branch),
+            "branch {branch:?} does not exist."
+        )
     }
     else {
         repo.current_hash
@@ -44,9 +45,10 @@ pub fn parse(args: Args) -> Result<()> {
 
         snapshots.push(current);
 
-        let parents = repo.history
-            .get_parents(current_hash)
-            .ok_or(eyre!("snapshot hash {current_hash} is not referenced in the snapshot tree"))?;
+        let parents = unwrap!(
+            repo.history.get_parents(current_hash),
+            "snapshot hash {current_hash} is not referenced in the snapshot tree."
+        );
 
         // 0 parents -> root
         // 2+ parents -> merge
@@ -60,24 +62,28 @@ pub fn parse(args: Args) -> Result<()> {
     }
 
     if snapshots.is_empty() {
-        bail!("no snapshots have been made on this branch");
+        bail!("no snapshots have been made on this branch.");
     }
 
-    for header in snapshots {
+    let snapshots_to_show = args.limit
+        .map(|v| &snapshots[..v])
+        .unwrap_or(&snapshots);
+
+    for snapshot in snapshots_to_show {
         match args.format.unwrap_or(Format::Medium) {
             Format::Short => {
-                println!("{}", header.hash);
+                println!("{}", snapshot.hash);
             }
             
             Format::Medium => {
-                println!("[{}]\t{} (user: {})", header.hash, header.message, header.author);
+                println!("[{}]\t{} (user: {})", snapshot.hash, snapshot.message, snapshot.author);
             }
 
             Format::Long => {
-                println!("Hash: {:?}", header.hash);
-                println!("Author: {}", header.author);
-                println!("Message: {}", header.message);
-                println!("Timestamp: {}", header.timestamp);
+                println!("Hash: {:?}", snapshot.hash);
+                println!("Author: {}", snapshot.author);
+                println!("Message: {}", snapshot.message);
+                println!("Timestamp: {}", snapshot.timestamp);
                 println!();
             }
         }

@@ -25,5 +25,7 @@ pub fn parse(args: Args) -> Result<()> {
         }
     }
 
+    repo.save()?;
+
     Ok(())
 }

@@ -24,7 +24,7 @@ pub struct Args {
 
 pub fn parse(args: Args) -> Result<()> {
     if args.author.is_none() && args.message.is_none() && args.datetime.is_none() {
-        bail!("A modification to the requested commit must be specified.");
+        bail!("a modification to the requested commit must be specified.");
     }
 
     let mut repo = Repository::load()?;
@@ -41,7 +41,7 @@ pub fn parse(args: Args) -> Result<()> {
 
     if let Some(message) = args.message {
         if message.is_empty() {
-            bail!("Messages for snapshots cannot be empty.");
+            bail!("messages for snapshots cannot be empty.");
         }
 
         snapshot.message = message;
