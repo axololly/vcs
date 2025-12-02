@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, path::PathBuf};
+use std::{collections::{BTreeMap, HashMap, HashSet, VecDeque}, path::PathBuf};
 
 use chrono::Local;
 use clap::Args as A;
@@ -233,7 +233,7 @@ pub fn parse(args: Args) -> Result<()> {
 
     hasher.update(&message);
 
-    let mut files = HashMap::new();
+    let mut files = BTreeMap::new();
 
     let mut dirty_files: Vec<PathBuf> = vec![];
 
@@ -265,21 +265,12 @@ pub fn parse(args: Args) -> Result<()> {
         files.insert(path, hash);
     }
 
-    let now = Local::now();
-
-    hasher.update(now.timestamp().to_be_bytes());
-
-    let raw_hash: [u8; 20] = hasher.finalize().into();
-
-    let hash = ObjectHash::from(raw_hash);
-
-    let snapshot = Snapshot {
-        hash,
+    let snapshot = Snapshot::from_parts(
         author,
         message,
-        files,
-        timestamp: now
-    };
+        Local::now(),
+        files
+    );
 
     repo.replace_cwd_with_snapshot(&snapshot)?;
 
@@ -308,13 +299,6 @@ pub fn parse(args: Args) -> Result<()> {
     if let Some(name) = repo.current_branch() {
         repo.branches.insert(name.to_string(), snapshot.hash);
     }
-
-    repo.action_history.push(
-        Action::CreateSnapshot {
-            hash,
-            parents: vec![repo.current_hash, target]
-        }
-    );
 
     repo.action_history.push(
         Action::SwitchVersion {

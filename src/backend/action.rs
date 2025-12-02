@@ -10,16 +10,6 @@ use crate::{backend::{hash::ObjectHash, snapshot::Snapshot}, utils::DisplaySeq};
 #[derive(Clone, Debug, Display, Deserialize, Serialize, PartialEq)]
 pub enum Action {
     // Snapshots
-    #[display("created snapshot {hash} with parents {:?}", DisplaySeq(parents))]
-    CreateSnapshot {
-        hash: ObjectHash,
-        parents: Vec<ObjectHash>
-    },
-    #[display("deleted snapshot {hash} with parents {:?}", DisplaySeq(parents))]
-    DeleteSnapshot {
-        hash: ObjectHash,
-        parents: Vec<ObjectHash>
-    },
     #[display("modified snapshot {hash}")]
     ModifySnapshot {
         hash: ObjectHash,

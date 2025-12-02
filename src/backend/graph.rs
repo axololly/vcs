@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use eyre::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::backend::hash::ObjectHash;
@@ -91,5 +92,31 @@ impl Graph {
         }
 
         false
+    }
+
+    /// Replace a hash in the tree with another hash,
+    /// provided the hash does not already exist in the graph.
+    pub fn rename(&mut self, old: ObjectHash, new: ObjectHash) -> Result<usize> {
+        if self.links.contains_key(&new) {
+            bail!("hash {new} already exists in the graph.");
+        }
+        
+        let Some(parents) = self.links.remove(&old) else {
+            bail!("hash {old} does not exist in the graph.")
+        };
+
+        self.links.insert(new, parents);
+
+        let mut modified = 0;
+
+        for parents in self.links.values_mut() {
+            if parents.remove(&old) {
+                modified += 1;
+                
+                parents.insert(new);
+            }
+        }
+
+        Ok(modified)
     }
 }

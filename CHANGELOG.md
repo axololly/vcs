@@ -17,6 +17,27 @@ Categories are as follows:
 - `Fixed` for any bug fixes
 - `Security` in case of vulnerabilities
 
+## v0.5.0
+
+### Added
+
+- `Snapshot::from_parts` to construct a `Snapshot` the same way consistently across the codebase
+
+### Changed
+
+- `Snapshot` has changed to use a `BTreeMap` to preserve order for hashing
+
+### Fixed
+
+- Documentation on `Repository::capture_current_state` was left unfinished
+- `Repository::capture_current_state` now hashes the author, message and timestamp
+- `asc modify` also updates the hash
+
+### Removed
+
+- `Action::CreateSnapshot` and `Action::DeleteSnapshot` no longer exist as `asc trash` replaces the need for these
+
+
 ## v0.4.0
 
 ### Added

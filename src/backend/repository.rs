@@ -59,13 +59,6 @@ impl Repository {
 
         self.history.insert(snapshot.hash, self.current_hash);
 
-        self.action_history.push(
-            Action::CreateSnapshot {
-                hash: snapshot.hash,
-                parents: vec![self.current_hash],
-            }
-        );
-
         if let Some(name) = branch_name {
             self.branches.insert(name, snapshot.hash);
         }
@@ -169,16 +162,6 @@ impl Repository {
         use Action::*;
 
         match action {
-            CreateSnapshot { hash, parents } => {
-                for parent in parents {
-                    self.history.insert(hash, parent);
-                }
-            }
-
-            DeleteSnapshot { hash, .. } => {
-                self.history.remove(hash);
-            }
-
             RebaseSnapshot { hash, to, .. } => {
                 let previous = self.history.upsert(hash, to);
 
@@ -223,10 +206,8 @@ impl Repository {
         use Action::*;
 
         let inverse = match action {
-            CreateSnapshot { hash, parents } => DeleteSnapshot { hash, parents },
-            DeleteSnapshot { hash, parents } => CreateSnapshot { hash, parents },
             RebaseSnapshot { hash, from, to } => RebaseSnapshot { hash, from: to, to: from },
-            ModifySnapshot { hash, before, after } => ModifySnapshot { hash, before: after, after: before },
+            ModifySnapshot { before, after, .. } => ModifySnapshot { hash: after.hash, before: after, after: before },
 
             CreateBranch { name, hash } => DeleteBranch { name, hash },
             DeleteBranch { name, hash } => CreateBranch { name, hash },

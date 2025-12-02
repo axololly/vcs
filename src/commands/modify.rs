@@ -1,8 +1,7 @@
-use chrono::{DateTime, Local};
 use clap::Args as A;
 use eyre::{Result, bail};
 
-use crate::backend::{action::Action, repository::Repository};
+use crate::backend::{action::Action, repository::Repository, snapshot::Snapshot};
 
 #[derive(A)]
 pub struct Args {
@@ -31,33 +30,37 @@ pub fn parse(args: Args) -> Result<()> {
 
     let version = repo.normalise_hash(&args.commit)?;
 
-    let mut snapshot = repo.fetch_snapshot(version)?;
+    let original = repo.fetch_snapshot(version)?;
 
-    let snapshot_before = snapshot.clone();
+    let snapshot_before = original.clone();
 
-    if let Some(author) = args.author {
-        snapshot.author = author;
+    let author = args.author.unwrap_or(original.author);
+
+    let message = args.message.unwrap_or(original.message);
+
+    if message.is_empty() {
+        bail!("messages for snapshots cannot be empty.");
     }
 
-    if let Some(message) = args.message {
-        if message.is_empty() {
-            bail!("messages for snapshots cannot be empty.");
-        }
+    let timestamp = args.datetime
+        .map(|s| s.parse())
+        .unwrap_or(Ok(original.timestamp))?;
 
-        snapshot.message = message;
-    }
+    let snapshot = Snapshot::from_parts(author, message, timestamp, original.files);
 
-    if let Some(raw_datetime) = args.datetime {
-        let new_datetime: DateTime<Local> = raw_datetime.parse()?;
-
-        snapshot.timestamp = new_datetime;
+    if snapshot_before.hash == snapshot.hash {
+        bail!("no changes were made to the commit (hashes were equal).");
     }
 
     repo.save_snapshot(&snapshot)?;
 
+    repo.history.rename(original.hash, snapshot.hash)?;
+
+    println!("Snapshot hash changed: {} -> {}", snapshot_before.hash, snapshot.hash);
+
     repo.action_history.push(
         Action::ModifySnapshot {
-            hash: snapshot.hash,
+            hash: snapshot_before.hash,
             before: snapshot_before,
             after: snapshot
         }

@@ -1,11 +1,10 @@
-use std::{collections::HashMap, env::current_dir, fs, io::Write, path::{Path, PathBuf}};
+use std::{collections::{BTreeMap, HashMap}, env::current_dir, fs, io::Write, path::{Path, PathBuf}};
 
 use crate::{backend::{action::ActionHistory, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, decompress_data, hash_raw_bytes, open_file, remove_path}};
 
 use chrono::Local;
 use eyre::{Result, bail};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use sha1::{Digest, Sha1};
 
 fn locate_root_dir(from: impl AsRef<Path>) -> Result<Option<PathBuf>> {
     let absolute = from.as_ref().canonicalize()?;
@@ -141,7 +140,7 @@ impl Repository {
             hash: ObjectHash::root(),
             message: "initial snapshot".to_string(),
             timestamp: Local::now(),
-            files: HashMap::new()
+            files: BTreeMap::new()
         };
 
         repo.save_snapshot(&root_snapshot)?;
@@ -331,31 +330,24 @@ impl Repository {
 
     /// Assemble a [`Snapshot`] from the repository's tracked files.
     /// 
-    /// This 
+    /// This saves the [`Snapshot`] and its files' contents to disk before returning.
     pub fn capture_current_state(&self, author: String, message: String) -> Result<Snapshot> {
-        let mut files = HashMap::new();
+        let mut files = BTreeMap::new();
         
-        let mut snapshot_hasher = Sha1::new();
-
         for path in &self.staged_files {
             let content = fs::read_to_string(&path)?;
 
             let hash = self.save_string_content(&content)?;
 
-            snapshot_hasher.update(hash.as_bytes());
-
             files.insert(path.clone(), hash);
         }
 
-        let raw_snapshot_hash: [u8; 20] = snapshot_hasher.finalize().into();
-
-        let snapshot = Snapshot {
-            hash: raw_snapshot_hash.into(),
+        let snapshot = Snapshot::from_parts(
             author,
             message,
-            timestamp: Local::now(),
+            Local::now(),
             files
-        };
+        );
 
         self.save_snapshot(&snapshot)?;
         

@@ -1,7 +1,8 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf};
 
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 
 use super::hash::ObjectHash;
 
@@ -25,5 +26,40 @@ pub struct Snapshot {
     pub author: String,
     pub message: String,
     pub timestamp: DateTime<Local>,
-    pub files: HashMap<PathBuf, ObjectHash>
+    
+    // A BTreeMap is used to preserve order, so that
+    // reconstructing and validating the hash is easier.
+    pub files: BTreeMap<PathBuf, ObjectHash>
+}
+
+impl Snapshot {
+    pub fn from_parts(
+        author: String,
+        message: String,
+        timestamp: DateTime<Local>,
+        files: BTreeMap<PathBuf, ObjectHash>
+    ) -> Snapshot
+    {
+        let mut snapshot_hasher = Sha1::new();
+
+        snapshot_hasher.update(author.as_bytes());
+        
+        snapshot_hasher.update(message.as_bytes());
+
+        snapshot_hasher.update(timestamp.timestamp().to_le_bytes());
+
+        for (_, hash) in &files {
+            snapshot_hasher.update(hash.as_bytes());
+        }
+
+        let raw_snapshot_hash: [u8; 20] = snapshot_hasher.finalize().into();
+
+        Snapshot {
+            hash: raw_snapshot_hash.into(),
+            author,
+            message,
+            timestamp,
+            files
+        }
+    }
 }
