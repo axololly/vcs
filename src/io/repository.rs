@@ -47,96 +47,40 @@ impl Repository {
         }
         
         // Where everything will live.
-        let content_dir = root_dir.join(".asc").to_path_buf();
+        let content_dir = root_dir.join(".asc");
 
         if content_dir.exists() && content_dir.is_dir() {
             bail!("root directory {} already contains a repository. Remove it and rerun the command.", root_dir.display());
         }
 
-        fs::create_dir(&content_dir)?;
-
-        // Where the staged files will go.
-        let mut fp = create_file(content_dir.join("index"))?;
-
-        let staged_files: Vec<PathBuf> = vec![];
-
-        fp.write_all(&rmp_serde::to_vec(&staged_files)?)?;
-
-        // Where the action history will go.
-        let mut fp = create_file(content_dir.join("history"))?;
-
-        let action_history = ActionHistory::new();
-
-        fp.write_all(&rmp_serde::to_vec(&action_history)?)?;
-
-        // Where the tags will go.
-        let mut fp = open_file(content_dir.join("tags"))?;
-
-        let tags: HashMap<String, ObjectHash> = HashMap::new();
-
-        fp.write_all(&rmp_serde::to_vec(&tags)?)?;
-
-        // Where each snapshot's data will go.
         let blobs_dir = content_dir.join("blobs");
 
-        fs::create_dir(&blobs_dir)?;
-
-        // Create the 0-255 thing that Git has
         for x in 0 ..= u8::MAX {
-            let prefix = hex::encode([x]);
+            let label = blobs_dir.join(hex::encode([x]));
 
-            fs::create_dir(blobs_dir.join(prefix))?;
+            fs::create_dir_all(label)?;
         }
-
-        let mut history = Graph::empty();
-
-        history.insert_orphan(ObjectHash::root());
-
-        // Where the snapshot history will go.
-        history.to_file(content_dir.join("tree"))?;
-
-        let mut branches = HashMap::new();
-
-        branches.insert("main".to_string(), ObjectHash::root());
-
-        let info = ProjectInfo {
-            project_name,
-            current_user: author.clone(),
-            branches: branches.clone(),
-            current_hash: ObjectHash::root(),
-            stashes: vec![]
-        };
-
-        // Where the repository information will go.
-        info.to_file(content_dir.join("info"))?;
-
-        // Where the trash will go.
-        let mut fp = create_file(content_dir.join("trash"))?;
-
-        let trash = Trash::new();
-
-        fp.write_all(&rmp_serde::to_vec(&trash)?)?;
 
         // An ignore file for the repository.
         create_file(root_dir.join(".ascignore"))?;
 
         let repo = Repository {
-            project_name: info.project_name,
+            project_name: project_name,
             ignore_matcher: get_ignore_matcher(&root_dir)?,
             root_dir,
-            action_history,
-            history,
-            current_user: info.current_user,
-            branches,
+            action_history: ActionHistory::new(),
+            history: Graph::empty(),
+            current_user: author.clone(),
+            branches: HashMap::new(),
             current_hash: ObjectHash::root(),
-            staged_files,
+            staged_files: vec![],
             stashes: vec![],
-            trash,
-            tags
+            trash: Trash::new(),
+            tags: HashMap::new()
         };
 
         let root_snapshot = Snapshot {
-            author: author.to_string(),
+            author,
             hash: ObjectHash::root(),
             message: "initial snapshot".to_string(),
             timestamp: Local::now(),
@@ -144,6 +88,8 @@ impl Repository {
         };
 
         repo.save_snapshot(&root_snapshot)?;
+
+        repo.save()?;
 
         Ok(repo)
     }
@@ -231,13 +177,13 @@ impl Repository {
 
         fp.write_all(&rmp_serde::to_vec(&self.action_history)?)?;
 
-        let mut fp = open_file(content_dir.join("trash"))?;
+        let mut fp = create_file(content_dir.join("trash"))?;
         
         fp.write_all(&rmp_serde::to_vec(&self.trash.entries)?)?;
 
-        let mut fp = open_file(content_dir.join("trash"))?;
+        let mut fp = create_file(content_dir.join("tags"))?;
         
-        fp.write_all(&rmp_serde::to_vec(&self.trash.entries)?)?;
+        fp.write_all(&rmp_serde::to_vec(&self.tags)?)?;
         
         Ok(())
     }

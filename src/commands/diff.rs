@@ -4,7 +4,7 @@ use clap::Args as A;
 use eyre::{Result, bail};
 use similar::{udiff::UnifiedDiff, TextDiff};
 
-use crate::{backend::{hash::ObjectHash, repository::Repository}, unwrap};
+use crate::{backend::{change::FileChange, hash::ObjectHash, repository::Repository}, unwrap};
 
 #[derive(A)]
 pub struct Args {
@@ -155,14 +155,14 @@ pub fn parse(args: Args) -> Result<()> {
         let diff = match get_before_and_after(&repo, &old_files, &new_files, path)? {
             (None, None) => unreachable!(),
 
-            (None, Some(_)) => format!("ADDED     {}", path.display()),
+            (None, Some(_)) => format!("{}", FileChange::Added(path)),
 
             (Some(_), None) => {
                 if to.is_some() {
-                    format!("REMOVED   {}", path.display())
+                    format!("{}", FileChange::Removed(path))
                 }
                 else {
-                    format!("MISSING   {}", path.display())
+                    format!("{}", FileChange::Missing(path))
                 }
             }
 

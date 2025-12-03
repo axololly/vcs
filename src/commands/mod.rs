@@ -2,6 +2,7 @@ mod add;
 mod blame;
 mod branch;
 mod cat;
+mod changes;
 mod clean;
 mod commit;
 mod diff;
@@ -66,6 +67,9 @@ pub enum Commands {
     /// Update staged files to match the ignore file.
     Update,
 
+    /// See what changes would be added to the next commit.
+    Changes(changes::Args),
+
     /// Clean out unused objects and reset the edit stack.
     Clean,
 
@@ -126,6 +130,7 @@ pub fn main() -> eyre::Result<()> {
         Switch(args) => switch::parse(args),
         Diff(args) => diff::parse(args),
         Update => update::parse(),
+        Changes(args) => changes::parse(args),
         Clean => clean::parse(),
         Undo(args) => undo::parse(args),
         Redo(args) => redo::parse(args),

@@ -17,6 +17,21 @@ Categories are as follows:
 - `Fixed` for any bug fixes
 - `Security` in case of vulnerabilities
 
+## \[Unreleased\]
+
+### Added
+
+- `FileChange` enum to represent a change in a file (added to the repo, removed from the repo, missing from the repo, etc)
+
+### Changed
+
+- `Repository::create_new` simply creates a `Repository` object from scratch, then calls `.save()` on it.
+
+### Fixed
+
+- Fixed an issue where tags were not saved to disk because I was stupid enough to leave in code that saves the trash to disk twice
+
+
 ## v0.5.0
 
 ### Added

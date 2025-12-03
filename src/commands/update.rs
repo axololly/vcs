@@ -1,6 +1,6 @@
 use std::{collections::HashSet, path::{Path, PathBuf}};
 
-use crate::{backend::repository::Repository, utils::resolve_wildcard_path};
+use crate::{backend::{change::FileChange, repository::Repository}, utils::resolve_wildcard_path};
 
 use eyre::Result;
 
@@ -19,13 +19,13 @@ pub fn parse() -> Result<()> {
     let mut removed = 0;
 
     for path in new.difference(&old) {
-        println!("ADDED     {}", path.display());
+        println!("{}", FileChange::Added(path));
 
         added += 1;
     }
     
     for path in old.difference(&new) {
-        println!("REMOVED   {}", path.display());
+        println!("{}", FileChange::Removed(path));
 
         removed += 1;
     }
