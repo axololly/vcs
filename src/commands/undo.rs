@@ -5,6 +5,10 @@ use crate::backend::repository::Repository;
 
 #[derive(A)]
 pub struct Args {
+    /// Undo all actions. Overrides '--count'.
+    #[arg(long)]
+    all: bool,
+
     /// The number of actions to undo. Defaults to 1.
     #[arg(short, long)]
     count: Option<usize>
@@ -13,7 +17,10 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    let count = args.count.unwrap_or(1);
+    let count = args.all
+        .then_some(usize::MAX)
+        .or(args.count)
+        .unwrap_or(1);
 
     let mut done = 0;
 

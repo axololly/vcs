@@ -8,38 +8,55 @@ use crate::backend::repository::Repository;
 pub struct Args {
     /// The maximum number of actions to list.
     #[arg(short = 'n', long)]
-    limit: Option<usize>
+    limit: Option<usize>,
+
+    /// Show hidden redoable actions.
+    #[arg(long)]
+    all: bool
 }
 
 pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
-    let mut actions = repo.action_history.as_vec().as_slice();
+    let (mut actions, redoable) = repo.action_history.as_slices();
 
     if let Some(limit) = args.limit {
         actions = actions.rchunks(limit).next().unwrap();
     }
 
-    let Some(current) = repo.action_history.current() else {
+    if actions.is_empty() {
         println!("No actions have been performed on this repository.");
 
         return Ok(());
     };
 
+    if repo.action_history.current().is_none() && !args.all {
+        println!("No more actions to be undone in this repository.");
+        println!("(hint: rerun with '--all' to see redoable actions)");
+
+        return Ok(());
+    }
+
     println!("Actions performed:");
 
-    for (count, action) in actions.iter().enumerate() {
+    // TODO: Show redoable actions as greyed out
+
+    if args.all {
+        for action in redoable {
+            let s = format!(" * {action}");
+
+            println!("{}", s.dimmed());
+        }
+    }
+
+    for action in actions.iter().rev() {
         let mut s = format!(" * {action}");
         
-        if action == current {
+        if Some(action) == repo.action_history.current() {
             s = format!("{} (you are here)", s.green());
         }
 
         println!("{s}");
-
-        if let Some(limit) = args.limit && count + 1 == limit {
-            break;
-        }
     }
 
     Ok(())

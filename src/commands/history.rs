@@ -45,6 +45,10 @@ pub fn parse(args: Args) -> Result<()> {
 
         snapshots.push(current);
 
+        if current_hash.is_root() {
+            break;
+        }
+
         let parents = unwrap!(
             repo.history.get_parents(current_hash),
             "snapshot hash {current_hash} is not referenced in the snapshot tree."
@@ -76,13 +80,13 @@ pub fn parse(args: Args) -> Result<()> {
             }
             
             Format::Medium => {
-                println!("[{}]\t{} (user: {})", snapshot.hash, snapshot.message, snapshot.author);
+                println!("[{}]  {} (user: {})", snapshot.hash, snapshot.message, snapshot.author);
             }
 
             Format::Long => {
                 println!("Hash: {:?}", snapshot.hash);
-                println!("Author: {}", snapshot.author);
                 println!("Message: {}", snapshot.message);
+                println!("Author: {}", snapshot.author);
                 println!("Timestamp: {}", snapshot.timestamp);
                 println!();
             }

@@ -68,9 +68,14 @@ pub fn remove_path(path: impl AsRef<Path>, root: impl AsRef<Path>) -> Result<()>
             break Ok(());
         }
 
+        let mut contents = unwrap!(
+            fs::read_dir(path),
+            "failed to read contents of directory: {}", path.display()
+        );
+
         // Read directory and see if it has no children.
         // If it's empty, we'll delete it. If not, stop here.
-        if fs::read_dir(path)?.next().is_some() {
+        if contents.next().is_some() {
             break Ok(());
         }
 

@@ -107,7 +107,7 @@ impl Repository {
     pub fn normalise_hash(&self, raw_hash: &str) -> Result<ObjectHash> {
         let as_hex = hex::decode(raw_hash)?;
 
-        if as_hex.len() <= 2 {
+        if as_hex.len() < 2 {
             bail!("hash {raw_hash:?} is too short to normalise");
         }
 

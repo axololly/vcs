@@ -22,10 +22,11 @@ Categories are as follows:
 ### Added
 
 - `FileChange` enum to represent a change in a file (added to the repo, removed from the repo, missing from the repo, etc)
+- `asc undo` and `asc redo` now have `--all` to undo/redo all actions on the repository.
 
 ### Changed
 
-- `Repository::create_new` simply creates a `Repository` object from scratch, then calls `.save()` on it.
+- `Repository::create_new` simply creates a `Repository` object from scratch, then calls `.save()` on it
 
 ### Fixed
 

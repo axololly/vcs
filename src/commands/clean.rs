@@ -20,6 +20,8 @@ pub fn parse() -> Result<()> {
             break;
         }
 
+        // TODO: This doesn't work if the hash isn't directly in the trash
+        // This needs to check children, probably requiring an inverted graph
         if repo.trash.contains(current) {
             continue;
         }

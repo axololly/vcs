@@ -119,7 +119,7 @@ impl ActionHistory {
     }
 
     /// Get a reference to the internal stack.
-    pub fn as_vec(&self) -> &Vec<Action> {
-        &self.inner
+    pub fn as_slices(&self) -> (&[Action], &[Action]) {
+        self.inner.split_at(self.index)
     }
 }

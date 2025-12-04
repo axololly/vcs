@@ -19,10 +19,7 @@ pub fn parse(args: Args) -> Result<()> {
 
     let previous_hash = repo.current_hash;
 
-    let new_hash = match repo.branches.get(&args.version) {
-        Some(&hash) => hash,
-        None => repo.normalise_version(&args.version)?
-    };
+    let new_hash = repo.normalise_version(&args.version)?;
 
     let before = repo.branch_from_hash(previous_hash)
         .map(String::from)

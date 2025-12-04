@@ -8,6 +8,7 @@ use crate::{backend::{change::FileChange, repository::Repository}, utils::hash_r
 #[derive(A)]
 pub struct Args {
     /// Include unchanged files in the list of changes.
+    #[arg(short, long)]
     verbose: bool
 }
 
@@ -64,7 +65,7 @@ pub fn parse(args: Args) -> Result<()> {
     }
 
     if file_changes.is_empty() {
-        println!("No changes can be displayed.");
+        println!("There are no changes in the repository.");
 
         return Ok(());
     }

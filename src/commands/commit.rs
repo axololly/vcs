@@ -24,11 +24,11 @@ pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
     if !repo.has_unsaved_changes()? {
-        bail!("no changes to document in the upcoming commit");
+        bail!("no changes to document in the upcoming commit.");
     }
 
     if repo.staged_files.is_empty() {
-        bail!("no files are being tracked - empty snapshots are disallowed");
+        bail!("no files are being tracked - empty snapshots are disallowed.");
     }
 
     let message = if let Some(msg) = args.message {

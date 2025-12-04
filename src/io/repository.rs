@@ -64,6 +64,10 @@ impl Repository {
         // An ignore file for the repository.
         create_file(root_dir.join(".ascignore"))?;
 
+        let mut branches = HashMap::new();
+
+        branches.insert("main".to_string(), ObjectHash::root());
+
         let repo = Repository {
             project_name: project_name,
             ignore_matcher: get_ignore_matcher(&root_dir)?,
@@ -71,7 +75,7 @@ impl Repository {
             action_history: ActionHistory::new(),
             history: Graph::empty(),
             current_user: author.clone(),
-            branches: HashMap::new(),
+            branches,
             current_hash: ObjectHash::root(),
             staged_files: vec![],
             stashes: vec![],
@@ -162,7 +166,11 @@ impl Repository {
         let cwd = Path::new(".").canonicalize()?;
         
         for path in &self.staged_files {
-            let full = path.canonicalize()?;
+            let full = unwrap!(
+                path.canonicalize(),
+                "failed to canonicalise path: {}",
+                path.display()
+            );
 
             let relative = pathdiff::diff_paths(full, &cwd).unwrap();
 
