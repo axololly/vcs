@@ -4,18 +4,18 @@ use derive_more::Display;
 
 #[derive(Display)]
 pub enum FileChange<'path> {
-    #[display("ADDED       {}", "0.display()")]
+    #[display("ADDED       {}", _0.display())]
     Added(&'path Path),
 
-    #[display("REMOVED     {}", "0.display()")]
+    #[display("REMOVED     {}", _0.display())]
     Removed(&'path Path),
     
-    #[display("EDITED      {}", "0.display()")]
+    #[display("EDITED      {}", _0.display())]
     Edited(&'path Path),
 
-    #[display("UNCHANGED   {}", "0.display()")]
+    #[display("UNCHANGED   {}", _0.display())]
     Unchanged(&'path Path),
 
-    #[display("MISSING     {}", "0.display()")]
+    #[display("MISSING     {}", _0.display())]
     Missing(&'path Path)
 }

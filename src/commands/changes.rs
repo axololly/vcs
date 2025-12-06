@@ -8,6 +8,7 @@ use crate::{backend::{change::FileChange, repository::Repository}, utils::hash_r
 #[derive(A)]
 pub struct Args {
     /// Include unchanged files in the list of changes.
+    #[arg(short, long)]
     verbose: bool
 }
 

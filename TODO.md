@@ -1,4 +1,4 @@
-- Add a `changes` command like `fossil` to see how the CWD has changed compared to the current commit
+- Add the ability to create users with permission levels and such
 
 - Add the ability to push and pull from remotes (and therefore sync with remotes)
     - Requires designing a protocol
