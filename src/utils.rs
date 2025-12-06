@@ -67,19 +67,24 @@ pub fn remove_path(path: impl AsRef<Path>, root: impl AsRef<Path>) -> Result<()>
         if path == root.as_ref() {
             break Ok(());
         }
-
-        let mut contents = unwrap!(
+        
+        let mut dir_contents = unwrap!(
             fs::read_dir(path),
-            "failed to read contents of directory: {}", path.display()
+            "failed to read contents of directory: {}",
+            path.display()
         );
 
         // Read directory and see if it has no children.
         // If it's empty, we'll delete it. If not, stop here.
-        if contents.next().is_some() {
+        if dir_contents.next().is_some() {
             break Ok(());
         }
 
-        fs::remove_dir(path)?;
+        unwrap!(
+            fs::remove_dir(path),
+            "failed to remove directory: {}",
+            path.display()
+        );
     }
 }
 
@@ -134,8 +139,7 @@ pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path) -> Re
         
         cmd
             .arg("-c")
-            .arg(editor.to_string())
-            .arg(snapshot_message_path.display().to_string());
+            .arg(format!("{editor} {}", snapshot_message_path.display()));
 
         cmd
     }

@@ -91,6 +91,16 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
 
     match subcommand {
         New { message, editor } => {
+            parse(Subcommands::Save { message, editor })?;
+
+            let current = repo.fetch_current_snapshot()?;
+
+            repo.replace_cwd_with_snapshot_unchecked(&current)?;
+
+            println!("Reverted back to:   {:?}", current.hash);
+        }
+
+        Save { message, editor } => {
             let message = message
                 .map(Ok)
                 .unwrap_or_else(|| {
@@ -116,7 +126,7 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
 
             repo.stashes.push(stash);
 
-            println!("Created new stash: {:?}", snapshot.hash.full());
+            println!("Created new stash: {:?}", snapshot.hash);
         }
 
         Delete { id: Some(str_hash) } => {
@@ -173,9 +183,21 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
             repo.current_hash = after;
 
             println!("Restored working directory to stash {} (HEAD switched: {before} -> {after})", snapshot.hash);
-        }
+        },
 
-        _ => todo!()
+        List => {
+            if repo.stashes.is_empty() {
+                println!("There are no stashes in this repository.");
+
+                return Ok(());
+            }
+
+            println!("Stashes:");
+
+            for stash in &repo.stashes {
+                println!(" * {} (from {})", stash.snapshot, stash.basis);
+            }
+        }
     }
 
     repo.save()?;

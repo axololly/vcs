@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::{Path, PathBuf}};
 
-use crate::{backend::{action::{Action, ActionHistory}, graph::Graph, hash::ObjectHash, snapshot::Snapshot, stash::Stash, trash::Trash}};
+use crate::backend::{action::{Action, ActionHistory}, graph::Graph, hash::ObjectHash, snapshot::Snapshot, stash::Stash, trash::{Entry, Trash, TrashStatus}};
 
 use eyre::{Result, bail};
 use ignore::gitignore::Gitignore;
@@ -107,8 +107,8 @@ impl Repository {
     pub fn normalise_hash(&self, raw_hash: &str) -> Result<ObjectHash> {
         let as_hex = hex::decode(raw_hash)?;
 
-        if as_hex.len() < 2 {
-            bail!("hash {raw_hash:?} is too short to normalise");
+        if as_hex.is_empty() {
+            bail!("attempted to normalise empty snapshot hash.");
         }
 
         let commit_hashes = self
@@ -130,8 +130,8 @@ impl Repository {
     pub fn normalise_stash_hash(&self, raw_hash: &str) -> Result<ObjectHash> {
         let as_hex = hex::decode(raw_hash)?;
 
-        if as_hex.len() <= 2 {
-            bail!("hash {raw_hash:?} is too short to normalise");
+        if as_hex.is_empty() {
+            bail!("attempted to normalise stash hash.");
         }
 
         let stash_ids = self.stashes
@@ -231,5 +231,20 @@ impl Repository {
         self.apply_action(action.clone())?;
 
         Ok(Some(action))
+    }
+
+    /// Check if an [`ObjectHash`] of a snapshot is included in the trash.
+    pub fn trash_contains(&self, hash: ObjectHash) -> Option<TrashStatus> {
+        if self.trash.contains(hash) {
+            return Some(TrashStatus::Direct);
+        }
+
+        for Entry { hash: trash_hash, .. } in self.trash.entries() {
+            if self.history.is_descendant(hash, *trash_hash) {
+                return Some(TrashStatus::Indirect(*trash_hash));
+            }
+        }
+
+        None
     }
 }

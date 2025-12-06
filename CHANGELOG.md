@@ -21,16 +21,20 @@ Categories are as follows:
 
 ### Added
 
-- `FileChange` enum to represent a change in a file (added to the repo, removed from the repo, missing from the repo, etc)
-- `asc undo` and `asc redo` now have `--all` to undo/redo all actions on the repository.
+- `FileChange` enum to represent a change in a file (added to the repo, removed from the repo, - `asc undo` and `asc redo` now have `--all` to undo/redo all actions on the repository.
+- Included more documentation
 
 ### Changed
 
 - `Repository::create_new` simply creates a `Repository` object from scratch, then calls `.save()` on it
+- `TrashStatus` was moved to be a public enum in `trash.rs` in the backend
+- `hash_in_trash` was moved to be a public method: `Repository::trash_contains`
+- Privatised `Trash::entries`
 
 ### Fixed
 
 - Fixed an issue where tags were not saved to disk because I was stupid enough to leave in code that saves the trash to disk twice
+- Fixed an issue viewing history where the root hash was not included in the DAG upon repository creation
 
 
 ## v0.5.0

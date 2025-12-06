@@ -73,7 +73,7 @@ impl Repository {
             ignore_matcher: get_ignore_matcher(&root_dir)?,
             root_dir,
             action_history: ActionHistory::new(),
-            history: Graph::empty(),
+            history: Graph::new(),
             current_user: author.clone(),
             branches,
             current_hash: ObjectHash::root(),
@@ -121,9 +121,7 @@ impl Repository {
         let action_history = rmp_serde::from_read(fp)?;
 
         let fp = open_file(content_dir.join("trash"))?;
-        let trash = Trash {
-            entries: rmp_serde::from_read(fp)?
-        };
+        let trash = rmp_serde::from_read(fp)?;
 
         let fp = open_file(content_dir.join("tags"))?;
         let tags: HashMap<String, ObjectHash> = rmp_serde::from_read(fp)?;
@@ -187,7 +185,7 @@ impl Repository {
 
         let mut fp = create_file(content_dir.join("trash"))?;
         
-        fp.write_all(&rmp_serde::to_vec(&self.trash.entries)?)?;
+        fp.write_all(&rmp_serde::to_vec(&self.trash)?)?;
 
         let mut fp = create_file(content_dir.join("tags"))?;
         
@@ -371,6 +369,15 @@ impl Repository {
             bail!("cannot change snapshots with unsaved changes.");
         }
 
+        self.replace_cwd_with_snapshot_unchecked(snapshot)
+    }
+
+    /// Replace the state of the current working directory with that
+    /// from another [`Snapshot`], but **DO NOT** check if there are
+    /// unsaved changes.
+    /// 
+    /// For a safer alternative, use [`Repository::replace_cwd_with_snapshot`].
+    pub fn replace_cwd_with_snapshot_unchecked(&self, snapshot: &Snapshot) -> Result<()> {
         let current = self.fetch_current_snapshot()?;
 
         // Delete paths that are in this snapshot but not the destination snapshot.

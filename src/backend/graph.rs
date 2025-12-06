@@ -17,6 +17,15 @@ pub struct Graph {
 }
 
 impl Graph {
+    /// Create a [`Graph`] with a root hash as the first node.
+    pub fn new() -> Graph {
+        let mut graph = Graph::empty();
+
+        graph.insert_orphan(ObjectHash::root());
+
+        graph
+    }
+    
     /// Create an empty [`Graph`].
     pub fn empty() -> Graph {
         Graph { links: HashMap::new() }

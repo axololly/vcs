@@ -5,8 +5,8 @@ use crate::backend::{action::Action, repository::Repository, snapshot::Snapshot}
 
 #[derive(A)]
 pub struct Args {
-    /// The commit hash to modify.
-    commit: String,
+    /// The snapshot hash to modify.
+    hash: String,
 
     /// The new author of the snapshot.
     #[arg(short, long)]
@@ -22,17 +22,12 @@ pub struct Args {
 }
 
 pub fn parse(args: Args) -> Result<()> {
-    if args.author.is_none() && args.message.is_none() && args.datetime.is_none() {
-        bail!("a modification to the requested commit must be specified.");
-    }
-
     let mut repo = Repository::load()?;
 
-    let version = repo.normalise_hash(&args.commit)?;
+    let version = repo.normalise_hash(&args.hash)?;
 
-    let original = repo.fetch_snapshot(version)?;
-
-    let snapshot_before = original.clone();
+    let mut original = repo.fetch_snapshot(version)?;
+    let orig_clone = original.clone();
 
     let author = args.author.unwrap_or(original.author);
 
@@ -46,9 +41,20 @@ pub fn parse(args: Args) -> Result<()> {
         .map(|s| s.parse())
         .unwrap_or(Ok(original.timestamp))?;
 
+    // Root is the only one where the hash is not recomputed
+    if version.is_root() {
+        original.author = author;
+        original.message = message;
+        original.timestamp = timestamp;
+
+        repo.save_snapshot(&original)?;
+
+        return Ok(());
+    }
+
     let snapshot = Snapshot::from_parts(author, message, timestamp, original.files);
 
-    if snapshot_before.hash == snapshot.hash {
+    if original.hash == snapshot.hash {
         bail!("no changes were made to the commit (hashes were equal).");
     }
 
@@ -56,12 +62,12 @@ pub fn parse(args: Args) -> Result<()> {
 
     repo.history.rename(original.hash, snapshot.hash)?;
 
-    println!("Snapshot hash changed: {} -> {}", snapshot_before.hash, snapshot.hash);
+    println!("Snapshot hash changed: {} -> {}", original.hash, snapshot.hash);
 
     repo.action_history.push(
         Action::ModifySnapshot {
-            hash: snapshot_before.hash,
-            before: snapshot_before,
+            hash: original.hash,
+            before: orig_clone,
             after: snapshot
         }
     );

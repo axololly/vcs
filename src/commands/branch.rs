@@ -10,12 +10,14 @@ pub enum Subcommands {
     Current,
 
     /// Create a new branch from the current commit.
+    #[command(visible_alias = "create")]
     New {
         /// The name of the branch.
         name: String
     },
 
     /// Delete a branch.
+    #[command(visible_aliases = ["rm", "remove"])]
     Delete {
         /// The name of the branch.
         name: String
@@ -31,6 +33,7 @@ pub enum Subcommands {
     },
 
     /// List all the branches in the repository.
+    #[command(visible_alias = "ls")]
     List {
         /// Include the hashes each branch points to.
         #[arg(short, long)]

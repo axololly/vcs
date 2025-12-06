@@ -1,7 +1,7 @@
 use clap::Subcommand;
 use eyre::{Result, bail, eyre};
 
-use crate::backend::{graph::Graph, hash::ObjectHash, repository::Repository, trash::{Entry, Trash}};
+use crate::backend::{graph::Graph, hash::ObjectHash, repository::Repository, trash::{Entry, TrashStatus}};
 
 #[derive(Subcommand)]
 pub enum Subcommands {
@@ -48,25 +48,6 @@ fn list_all_subnodes(graph: &Graph, hash: ObjectHash) -> Vec<ObjectHash> {
     v
 }
 
-enum TrashStatus {
-    Direct,
-    Indirect(ObjectHash)
-}
-
-fn hash_in_trash(hash: ObjectHash, graph: &Graph, trash: &Trash) -> Option<TrashStatus> {
-    if trash.contains(hash) {
-        return Some(TrashStatus::Direct);
-    }
-
-    for Entry { hash: trash_hash, .. } in &trash.entries {
-        if graph.is_descendant(hash, *trash_hash) {
-            return Some(TrashStatus::Indirect(*trash_hash));
-        }
-    }
-
-    None
-}
-
 pub fn parse(subcommand: Subcommands) -> Result<()> {
     let mut repo = Repository::load()?;
 
@@ -92,7 +73,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 bail!("cannot trash the root snapshot.");
             }
 
-            if let Some(status) = hash_in_trash(hash, &repo.history, &repo.trash) {
+            if let Some(status) = repo.trash_contains(hash) {
                 match status {
                     TrashStatus::Direct => {
                         bail!("this snapshot is already in the trash.");
@@ -162,17 +143,17 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
         Recover { version } => {
             let hash = repo.normalise_hash(&version)?;
 
-            match hash_in_trash(hash, &inverse_links, &repo.trash) {
+            match repo.trash_contains(hash) {
                 Some(TrashStatus::Direct) => {
                     repo.trash.remove(hash);
                 }
 
                 Some(TrashStatus::Indirect(to_remove)) => {
-                    repo.trash.remove(to_remove);
+                    bail!("snapshot {hash} cannot be removed from the trash until {to_remove} is removed.");
                 }
 
                 None => {
-                    bail!("snapshot {hash} does not exist in the trash.")
+                    bail!("snapshot {hash} does not exist in the trash.");
                 }
             }
 
@@ -198,7 +179,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
 
             let capped_entries = repo
                 .trash
-                .entries
+                .entries()
                 .chunks(limit)
                 .next()
                 .unwrap();
@@ -215,7 +196,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 println!("{s}");
             }
 
-            let remaining = repo.trash.entries.len() - capped_entries.len();
+            let remaining = repo.trash.size() - capped_entries.len();
 
             if remaining > 0 {
                 println!("(+ {remaining} more entries)");
@@ -235,7 +216,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
 
             repo
                 .trash
-                .entries
+                .entries()
                 .iter()
                 .filter(|e| e.hash == hash)
                 .next()
