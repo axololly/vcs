@@ -1,6 +1,6 @@
 # Version Control System
 
-Update: I got my heart repaired by this one really nice girl in my life, so clearly this paid off. Probably gonna use this as part of my school project too, which will save me time. :100:
+Update: Fuck my life. Probably gonna use this as part of my school project too, which will save me time. :100:
 
 ## This isn't real!
 
