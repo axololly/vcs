@@ -7,7 +7,7 @@ use eyre::{Result, bail};
 use sha1::{Digest, Sha1};
 use threeway_merge::{merge_strings, MergeOptions};
 
-use crate::{backend::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot}, unwrap, utils::get_content_from_editor};
+use crate::{backend::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot}, commands::commit::COMMIT_TEMPLATE_MESSAGE, unwrap, utils::get_content_from_editor};
 
 fn nodes_to_root(graph: &Graph, node: ObjectHash) -> HashMap<ObjectHash, usize> {
     let mut queue: VecDeque<(ObjectHash, usize)> = VecDeque::new();
@@ -228,7 +228,7 @@ pub fn parse(args: Args) -> Result<()> {
 
         let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
 
-        get_content_from_editor(&editor, snapshot_message_path)?
+        get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
     };
 
     hasher.update(&message);

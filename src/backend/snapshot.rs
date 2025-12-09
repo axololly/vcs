@@ -6,7 +6,7 @@ use sha1::{Digest, Sha1};
 
 use super::hash::ObjectHash;
 
-#[allow(unused_imports, reason = "")]
+#[allow(unused_imports, reason = "used for documentation.")]
 use super::repository::Repository;
 
 /// Represents the state of the project within the repository.

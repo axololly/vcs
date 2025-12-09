@@ -86,7 +86,7 @@ pub fn parse(command: Subcommands) -> Result<()> {
 
         List { verbose } => {
             if repo.is_head_detached() {
-                println!("{}", format!(" * HEAD detached at {}", repo.current_hash).green());
+                println!("{}", format!(" * HEAD detached at {}", repo.current_hash).bright_green());
             }
 
             for (branch_name, &commit_hash) in &repo.branches {
@@ -97,7 +97,7 @@ pub fn parse(command: Subcommands) -> Result<()> {
                 }
                 
                 if repo.current_hash == commit_hash {
-                    s = format!("{}", s.green());
+                    s = format!("{}", s.bright_green());
                 }
                 
                 println!("{s}")

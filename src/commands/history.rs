@@ -25,6 +25,10 @@ pub struct Args {
     format: Option<Format>
 }
 
+fn first_line_only(message: &str) -> &str {
+    message.lines().next().unwrap()
+}
+
 pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
@@ -80,12 +84,12 @@ pub fn parse(args: Args) -> Result<()> {
             }
             
             Format::Medium => {
-                println!("[{}]  {} (user: {})", snapshot.hash, snapshot.message, snapshot.author);
+                println!("[{}]  {} (user: {})", snapshot.hash, first_line_only(&snapshot.message), snapshot.author);
             }
 
             Format::Long => {
                 println!("Hash: {:?}", snapshot.hash);
-                println!("Message: {}", snapshot.message);
+                println!("Message: {}", first_line_only(&snapshot.message));
                 println!("Author: {}", snapshot.author);
                 println!("Timestamp: {}", snapshot.timestamp);
                 println!();

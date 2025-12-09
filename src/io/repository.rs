@@ -1,6 +1,6 @@
-use std::{collections::{BTreeMap, HashMap}, env::current_dir, fs, io::Write, path::{Path, PathBuf}};
+use std::{collections::{BTreeMap, HashMap}, env::current_dir, fs, path::{Path, PathBuf}};
 
-use crate::{backend::{action::ActionHistory, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, decompress_data, hash_raw_bytes, open_file, remove_path}};
+use crate::{backend::{action::ActionHistory, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, decompress_data, hash_raw_bytes, open_file, remove_path, save_as_msgpack}};
 
 use chrono::Local;
 use eyre::{Result, bail};
@@ -175,21 +175,13 @@ impl Repository {
             index.push(relative);
         }
 
-        let mut fp = create_file(content_dir.join("index"))?;
+        save_as_msgpack(&index, content_dir.join("index"))?;
 
-        fp.write_all(&rmp_serde::to_vec(&index)?)?;
-
-        let mut fp = create_file(content_dir.join("history"))?;
-
-        fp.write_all(&rmp_serde::to_vec(&self.action_history)?)?;
-
-        let mut fp = create_file(content_dir.join("trash"))?;
+        save_as_msgpack(&self.action_history, content_dir.join("history"))?;
         
-        fp.write_all(&rmp_serde::to_vec(&self.trash)?)?;
+        save_as_msgpack(&self.trash, content_dir.join("trash"))?;
 
-        let mut fp = create_file(content_dir.join("tags"))?;
-        
-        fp.write_all(&rmp_serde::to_vec(&self.tags)?)?;
+        save_as_msgpack(&self.tags, content_dir.join("tags"))?;
         
         Ok(())
     }

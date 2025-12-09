@@ -6,7 +6,7 @@ pub type RawObjectHash = [u8; 20];
 
 /// A SHA-1 wrapper type used to uniquely identify content in the repository.
 #[derive(Clone, Copy, Deserialize, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize)]
-pub struct ObjectHash(RawObjectHash);
+pub struct ObjectHash(#[serde(with = "serde_bytes")] RawObjectHash);
 
 impl ObjectHash {
     /// Return the root hash, which is all zeroes.
