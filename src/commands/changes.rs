@@ -1,9 +1,7 @@
-use std::{collections::HashSet, fs, path::PathBuf};
-
 use clap::Args as A;
 use eyre::Result;
 
-use crate::{backend::{change::FileChange, repository::Repository}, utils::hash_raw_bytes};
+use crate::backend::{change::FileChange, repository::Repository};
 
 #[derive(A)]
 pub struct Args {
@@ -15,53 +13,13 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
-    let old_files = repo.fetch_current_snapshot()?.files;
+    let mut file_changes = repo.list_changes()?;
 
-    let old_paths: HashSet<&PathBuf> = old_files
-        .keys()
-        .collect();
-
-    let new_paths: HashSet<&PathBuf> = repo.staged_files
-        .iter()
-        .collect();
-
-    let mut file_changes: Vec<FileChange> = vec![];
-
-    file_changes.extend(
-        new_paths
-            .difference(&old_paths)
-            .map(|&p| FileChange::Added(p))
-    );
-
-    file_changes.extend(
-        old_paths
-            .difference(&new_paths)
-            .map(|&p| FileChange::Removed(p))
-    );
-
-    file_changes.extend(
-        new_paths
-            .iter()
-            .filter_map(|&p| (!p.exists()).then_some(FileChange::Missing(p)))
-    );
-
-    for (path, &hash) in &old_files {
-        if !path.exists() {
-            continue;
-        }
-
-        let content = fs::read_to_string(path)?;
-
-        let content_hash = hash_raw_bytes(&content);
-        
-        if hash != content_hash {
-            file_changes.push(FileChange::Edited(path));
-            continue;
-        }
-
-        if args.verbose {
-            file_changes.push(FileChange::Unchanged(path));
-        }
+    if !args.verbose {
+        file_changes = file_changes
+            .into_iter()
+            .filter(|f| !matches!(f, FileChange::Unchanged(_)))
+            .collect();
     }
 
     if file_changes.is_empty() {

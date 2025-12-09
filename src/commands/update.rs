@@ -18,13 +18,13 @@ pub fn parse() -> Result<()> {
     let mut added = 0;
     let mut removed = 0;
 
-    for path in new.difference(&old) {
+    for path in new.difference(&old).cloned() {
         println!("{}", FileChange::Added(path));
 
         added += 1;
     }
     
-    for path in old.difference(&new) {
+    for path in old.difference(&new).cloned() {
         println!("{}", FileChange::Removed(path));
 
         removed += 1;

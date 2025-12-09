@@ -65,6 +65,12 @@ pub enum Subcommands {
     }
 }
 
+static TEMPLATE_MESSAGE: &str = "
+# Enter a message for this stash.
+# Lines starting with '#' are ignored.
+# Whitespace before and after the message is also ignored.
+";
+
 fn resolve_stash<'a>(repo: &'a Repository, id: Option<&str>) -> Result<(usize, &'a Stash)> {
     if let Some(raw_hash) = id {
         let full = repo.normalise_stash_hash(raw_hash)?;
@@ -110,7 +116,7 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
 
                     let snapshot_message_path = &repo.root_dir.join("SNAPSHOT_MESSAGE");
 
-                    get_content_from_editor(&editor, snapshot_message_path)
+                    get_content_from_editor(&editor, snapshot_message_path, TEMPLATE_MESSAGE)
                 }
             )?;
 

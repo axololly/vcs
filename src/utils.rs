@@ -1,10 +1,12 @@
 use crate::{backend::hash::ObjectHash, unwrap};
 
-use std::{fmt, fs::{self, File}, path::{Path, PathBuf}, process::Command};
+use std::{fmt, fs::{self, File}, io::Write, path::{Path, PathBuf}, process::Command};
 
 use eyre::{Context, Result, bail, eyre};
 use glob::glob;
 use miniz_oxide::{deflate::compress_to_vec, inflate::decompress_to_vec};
+use regex::Regex;
+use serde::Serialize;
 use sha1::{Digest, Sha1};
 
 /// Expand a path with wildcards into all possible matches.
@@ -119,10 +121,12 @@ pub fn create_file(path: impl AsRef<Path>) -> Result<File> {
 /// 
 /// To spawn a process on Windows, this uses `cmd`, while on Unix, it uses `bash`.
 /// Anything else and you get a special error message :)
-pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path) -> Result<String> {
-    // TODO: Fill it with a template like Git and Fossil have
-    
-    File::create(snapshot_message_path)?;
+pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path, template_message: &str) -> Result<String> {
+    unwrap!(
+        fs::write(snapshot_message_path, template_message),
+        "failed to write snapshot template {template_message:?} to path {}",
+        snapshot_message_path.display()
+    );
 
     let mut editor_cmd = if cfg!(windows) {
         let mut cmd = Command::new("cmd");
@@ -149,8 +153,15 @@ pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path) -> Re
 
     let mut child = editor_cmd.spawn()?;
 
-    if !child.wait()?.success() {
-        bail!("editor process exited with a non-zero exit code.");
+    let status = child.wait()?;
+
+    if !status.success() {
+        let message = match status.code() {
+            Some(code) => format!("exited with non-zero exit code: {code}"),
+            None => format!("process terminated by signal")
+        };
+
+        bail!("editor process did not exit successfully: {}.", message);
     }
 
     let content = unwrap!(
@@ -158,7 +169,22 @@ pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path) -> Re
         "cannot read content of: {}", snapshot_message_path.display()
     );
 
-    Ok(content)
+    // Extracts only the commit message, stripping whitespace and commented-out lines.
+    let re = Regex::new(r"^\s*?(.*?)\s*?$(\n(\n*?#.*?$)*)?").unwrap();
+
+    let cleaned = re.captures(&content).unwrap();
+
+    Ok(cleaned[0].to_string())
+}
+
+pub fn save_as_msgpack<T: Serialize>(data: &T, path: impl AsRef<Path>) -> Result<()> {
+    let mut fp = create_file(path)?;
+
+    let bytes = rmp_serde::to_vec(data)?;
+
+    fp.write_all(&bytes)?;
+    
+    Ok(())
 }
 
 struct _Display<T>(pub T)

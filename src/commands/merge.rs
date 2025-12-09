@@ -7,7 +7,7 @@ use eyre::{Result, bail};
 use sha1::{Digest, Sha1};
 use threeway_merge::{merge_strings, MergeOptions};
 
-use crate::{backend::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot}, unwrap, utils::get_content_from_editor};
+use crate::{backend::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot}, commands::commit::COMMIT_TEMPLATE_MESSAGE, unwrap, utils::get_content_from_editor};
 
 fn nodes_to_root(graph: &Graph, node: ObjectHash) -> HashMap<ObjectHash, usize> {
     let mut queue: VecDeque<(ObjectHash, usize)> = VecDeque::new();
@@ -189,13 +189,14 @@ pub fn parse(args: Args) -> Result<()> {
 
     // Files that exist in both will have merge conflicts that need resolving.
     for path in our_paths.intersection(&their_paths) {
-        let ours = repo.fetch_string_content(our_files[path.as_path()])?;
-        let theirs = repo.fetch_string_content(their_files[path.as_path()])?;
+        let ours = repo.fetch_string_content(our_files[path.as_path()])?.resolve(&repo)?;
+        let theirs = repo.fetch_string_content(their_files[path.as_path()])?.resolve(&repo)?;
 
         let base = base_files
             .get(path.as_path())
             .map(|&content_hash| repo.fetch_string_content(content_hash))
-            .unwrap_or(Ok(String::new()))?;
+            .map(|r| r.map(|c| c.resolve(&repo)))
+            .unwrap_or(Ok(Ok(String::new())))??;
 
         let merge_result = merge_strings(&base, &ours, &theirs, &options)?;
 
@@ -228,7 +229,7 @@ pub fn parse(args: Args) -> Result<()> {
 
         let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
 
-        get_content_from_editor(&editor, snapshot_message_path)?
+        get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
     };
 
     hasher.update(&message);
@@ -256,7 +257,7 @@ pub fn parse(args: Args) -> Result<()> {
             ContentType::Get(string) => {
                 hasher.update(&string);
 
-                repo.save_string_content(&string)?
+                repo.save_content_raw(&string)?
             }
 
             ContentType::Fetch(hash) => hash

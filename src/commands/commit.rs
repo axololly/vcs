@@ -5,7 +5,7 @@ use crate::{backend::repository::Repository, unwrap, utils::get_content_from_edi
 
 #[derive(A)]
 pub struct Args {
-    /// The message to be attached to the snapshot.
+    /// The message to be attached to the commit.
     #[arg(short, long)]
     message: Option<String>,
 
@@ -19,6 +19,14 @@ pub struct Args {
     #[arg(short, long)]
     branch: Option<String>
 }
+
+pub static COMMIT_TEMPLATE_MESSAGE: &str = "
+# Enter a message for this commit.
+# Lines starting with '#' are ignored.
+# Whitespace before and after the message is also ignored.
+";
+
+// TODO: Prevent making commits (+ stashes) if there are missing files
 
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
@@ -41,7 +49,7 @@ pub fn parse(args: Args) -> Result<()> {
 
         let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
 
-        get_content_from_editor(&editor, snapshot_message_path)?
+        get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
     };
 
     let author = repo.current_user.to_string();
