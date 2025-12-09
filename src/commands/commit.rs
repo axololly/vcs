@@ -26,6 +26,8 @@ pub static COMMIT_TEMPLATE_MESSAGE: &str = "
 # Whitespace before and after the message is also ignored.
 ";
 
+// TODO: Prevent making commits (+ stashes) if there are missing files
+
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 

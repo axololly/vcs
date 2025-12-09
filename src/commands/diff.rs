@@ -53,7 +53,7 @@ impl Ord for Locator {
 impl Locator {
     pub fn get_content(&self, repo: &Repository) -> Result<String> {
         match self {
-            Locator::WithHash(_, hash) => repo.fetch_string_content(*hash),
+            Locator::WithHash(_, hash) => repo.fetch_string_content(*hash)?.resolve(repo),
 
             Locator::FromCwd(path) => Ok(unwrap!(
                 fs::read_to_string(path),

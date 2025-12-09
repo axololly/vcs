@@ -23,6 +23,11 @@ Categories are as follows:
 
 - `FileChange` enum to represent a change in a file (added to the repo, removed from the repo, - `asc undo` and `asc redo` now have `--all` to undo/redo all actions on the repository.
 - Included more documentation
+- Added delta compression and multiple methods for saving content:
+    - `save_content` applies optional delta compression if available
+    - `save_content_raw` stores a literal blob
+    - `save_content_delta` stores a delta that will fail if the two strings are not similar enough
+    - `save_content_delta_unchecked` stores a delta regardless of the similarity of the two stringss
 
 ### Changed
 
@@ -30,6 +35,9 @@ Categories are as follows:
 - `TrashStatus` was moved to be a public enum in `trash.rs` in the backend
 - `hash_in_trash` was moved to be a public method: `Repository::trash_contains`
 - Privatised `Trash::entries`
+- Introduced `save_as_msgpack` which writes a `serde` object to a path as MessagePack
+- Commit and stash messages now have the ability to take a message
+- `asc clean` now takes arguments
 
 ### Fixed
 

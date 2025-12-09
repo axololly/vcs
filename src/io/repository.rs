@@ -1,10 +1,11 @@
 use std::{collections::{BTreeMap, HashMap}, env::current_dir, fs, path::{Path, PathBuf}};
 
-use crate::{backend::{action::ActionHistory, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, decompress_data, hash_raw_bytes, open_file, remove_path, save_as_msgpack}};
+use crate::{backend::{action::ActionHistory, content::{Content, Delta, RawContent}, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, hash_raw_bytes, open_file, remove_path, save_as_msgpack}};
 
 use chrono::Local;
 use eyre::{Result, bail};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use similar::TextDiff;
 
 fn locate_root_dir(from: impl AsRef<Path>) -> Result<Option<PathBuf>> {
     let absolute = from.as_ref().canonicalize()?;
@@ -187,6 +188,8 @@ impl Repository {
     }
 }
 
+pub static MIN_DELTA_SIMILARITY: f32 = 0.65;
+
 impl Repository {
     /// Get the directory the repository operates in.
     pub fn main_dir(&self) -> PathBuf {
@@ -212,7 +215,7 @@ impl Repository {
     }
     
     /// Fetch a `String` from the repository, addressed by its hash.
-    pub fn fetch_string_content(&self, content_hash: ObjectHash) -> Result<String> {
+    pub fn fetch_string_content(&self, content_hash: ObjectHash) -> Result<Content> {
         let path = self.hash_to_path(content_hash);
         
         let raw = unwrap!(
@@ -220,14 +223,9 @@ impl Repository {
             "failed to read bytes from: {}", path.display()
         );
 
-        let decompressed = decompress_data(&raw)?;
+        let raw_content: RawContent = rmp_serde::from_slice(&raw)?;
 
-        let content = unwrap!(
-            String::from_utf8(decompressed),
-            "invalid utf8 in path: {}", path.display()
-        );
-
-        Ok(content)
+        raw_content.into_content()
     }
 
     /// Fetch a [`Snapshot`] from the repository, addressed by its hash.
@@ -244,8 +242,22 @@ impl Repository {
         self.fetch_snapshot(self.current_hash)
     }
 
+    /// Save a string to disk with optional delta compression if `basis` is provided
+    /// and the basis is similar enough to `content` (determined by [`MIN_DELTA_SIMILARITY`]).
+    pub fn save_content(&self, content: &str, basis: Option<ObjectHash>) -> Result<ObjectHash> {
+        let Some(basis) = basis else {
+            return self.save_content_raw(content);
+        };
+
+        let Some(hash) = self.save_content_delta(content, basis)? else {
+            return self.save_content_raw(content);
+        };
+
+        Ok(hash)
+    }
+
     /// Save a string as a compressed blob to disk and return the hash used to load it.
-    pub fn save_string_content(&self, content: &str) -> Result<ObjectHash> {
+    pub fn save_content_raw(&self, content: &str) -> Result<ObjectHash> {
         let hash = hash_raw_bytes(content);
 
         let path = self.hash_to_path(hash);
@@ -258,30 +270,62 @@ impl Repository {
         Ok(hash)
     }
 
+    /// Save a string as a delta of some other string on disk, but reject the delta
+    /// if the two strings have a similarity lower than [`MIN_DELTA_SIMILARITY`].
+    pub fn save_content_delta(&self, content: &str, basis: ObjectHash) -> Result<Option<ObjectHash>> {
+        let original = self.fetch_string_content(basis)?.resolve(self)?;
+
+        let diff = TextDiff::from_words(original.as_str(), content);
+
+        if diff.ratio() < MIN_DELTA_SIMILARITY {
+            return Ok(None);
+        }
+
+        let hash = self.save_content_delta_unchecked(content, basis)?;
+
+        Ok(Some(hash))
+    }
+
+    /// Save a string as a delta of some other string on disk, regardless of the similarity
+    /// of the two strings.
+    /// 
+    /// For a method that considers similarity, use the safer [`Repository::save_content_delta`],
+    /// or the higher-level [`Repository::save_content`].
+    pub fn save_content_delta_unchecked(&self, content: &str, basis: ObjectHash) -> Result<ObjectHash> {
+        let base = self.fetch_string_content(basis)?;
+
+        let original = base.resolve(self)?;
+
+        let delta = Delta::new_unchecked(&original, content);
+
+        let hash = hash_raw_bytes(content);
+
+        let path = self.hash_to_path(hash);
+
+        save_as_msgpack(&delta, path)?;
+
+        Ok(hash)
+    }
+
     /// Save a snapshot as a compressed blob to disk.
     pub fn save_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
-        let bytes = rmp_serde::to_vec(snapshot)?;
-        
         let path = self.hash_to_path(snapshot.hash);
 
-        unwrap!(
-            fs::write(&path, &bytes),
-            "failed to write snapshot to: {}", path.display()
-        );
-
-        Ok(())
+        save_as_msgpack(snapshot, path)
     }
 
     /// Assemble a [`Snapshot`] from the repository's tracked files.
     /// 
     /// This saves the [`Snapshot`] and its files' contents to disk before returning.
     pub fn capture_current_state(&self, author: String, message: String) -> Result<Snapshot> {
+        let base_files = self.fetch_current_snapshot()?.files;
+
         let mut files = BTreeMap::new();
         
         for path in &self.staged_files {
             let content = fs::read_to_string(&path)?;
 
-            let hash = self.save_string_content(&content)?;
+            let hash = self.save_content(&content, base_files.get(path).cloned())?;
 
             files.insert(path.clone(), hash);
         }
@@ -388,7 +432,7 @@ impl Repository {
             let content = self.fetch_string_content(new)?;
 
             unwrap!(
-                fs::write(path, content),
+                fs::write(path, content.resolve(self)?),
                 "failed to write to path: {}", path.display()
             );
         }

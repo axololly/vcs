@@ -57,7 +57,7 @@ pub fn parse(args: Args) -> Result<()> {
             hash: snapshot.hash,
             author: snapshot.author,
             timestamp: snapshot.timestamp,
-            content: repo.fetch_string_content(content_hash)?
+            content: repo.fetch_string_content(content_hash)?.resolve(&repo)?
         });
 
         let parents = repo.history

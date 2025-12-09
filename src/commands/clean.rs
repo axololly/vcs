@@ -57,6 +57,21 @@ pub fn parse(args: Args) -> Result<()> {
     }
 
     if args.commits_only {
+        println!("Removed {removed} commits from the repository graph.");
+
+        repo.save()?;
+
+        return Ok(());
+    }
+
+    let all_commits: HashSet<ObjectHash> = repo.history.iter_hashes().collect();
+    let removed = all_commits.difference(&valid_commits).count();
+
+    for &to_remove in all_commits.difference(&valid_commits) {
+        repo.history.remove(to_remove);
+    }
+
+    if args.commits_only {
         println!("Removed {removed} commits from the repository.");
 
         return Ok(());

@@ -1,5 +1,5 @@
 pub mod action;
-pub mod delta;
+pub mod content;
 pub mod change;
 pub mod hash;
 pub mod repository;

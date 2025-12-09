@@ -189,13 +189,14 @@ pub fn parse(args: Args) -> Result<()> {
 
     // Files that exist in both will have merge conflicts that need resolving.
     for path in our_paths.intersection(&their_paths) {
-        let ours = repo.fetch_string_content(our_files[path.as_path()])?;
-        let theirs = repo.fetch_string_content(their_files[path.as_path()])?;
+        let ours = repo.fetch_string_content(our_files[path.as_path()])?.resolve(&repo)?;
+        let theirs = repo.fetch_string_content(their_files[path.as_path()])?.resolve(&repo)?;
 
         let base = base_files
             .get(path.as_path())
             .map(|&content_hash| repo.fetch_string_content(content_hash))
-            .unwrap_or(Ok(String::new()))?;
+            .map(|r| r.map(|c| c.resolve(&repo)))
+            .unwrap_or(Ok(Ok(String::new())))??;
 
         let merge_result = merge_strings(&base, &ours, &theirs, &options)?;
 
@@ -256,7 +257,7 @@ pub fn parse(args: Args) -> Result<()> {
             ContentType::Get(string) => {
                 hasher.update(&string);
 
-                repo.save_string_content(&string)?
+                repo.save_content_raw(&string)?
             }
 
             ContentType::Fetch(hash) => hash
