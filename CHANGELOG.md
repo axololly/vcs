@@ -27,7 +27,9 @@ Categories are as follows:
     - `save_content` applies optional delta compression if available
     - `save_content_raw` stores a literal blob
     - `save_content_delta` stores a delta that will fail if the two strings are not similar enough
-    - `save_content_delta_unchecked` stores a delta regardless of the similarity of the two stringss
+    - `save_content_delta_unchecked` stores a delta regardless of the similarity of the two strings
+- Added `Repository::list_changes` to replicate the functionality of `asc changes` across the repository
+- `FileChange` now takes a `PathBuf` instead of a `&Path`
 
 ### Changed
 

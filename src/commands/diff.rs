@@ -150,9 +150,9 @@ pub fn parse(args: Args) -> Result<()> {
     let mut diffs: Vec<String> = vec![];
 
     for locator in unique_locators {
-        let path = locator.path();
+        let path = locator.path().to_path_buf();
 
-        let diff = match get_before_and_after(&repo, &old_files, &new_files, path)? {
+        let diff = match get_before_and_after(&repo, &old_files, &new_files, &path)? {
             (None, None) => unreachable!(),
 
             (None, Some(_)) => format!("{}", FileChange::Added(path)),
@@ -166,7 +166,7 @@ pub fn parse(args: Args) -> Result<()> {
                 }
             }
 
-            (Some(old), Some(new)) => create_diff(path, &old, &new)
+            (Some(old), Some(new)) => create_diff(&path, &old, &new)
         };
 
         if !diff.is_empty() {

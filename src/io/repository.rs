@@ -1,6 +1,6 @@
-use std::{collections::{BTreeMap, HashMap}, env::current_dir, fs, path::{Path, PathBuf}};
+use std::{collections::{BTreeMap, HashMap, HashSet}, env::current_dir, fs, path::{Path, PathBuf}};
 
-use crate::{backend::{action::ActionHistory, content::{Content, Delta, RawContent}, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, hash_raw_bytes, open_file, remove_path, save_as_msgpack}};
+use crate::{backend::{action::ActionHistory, change::FileChange, content::{Content, Delta, RawContent}, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, hash_raw_bytes, open_file, remove_path, save_as_msgpack}};
 
 use chrono::Local;
 use eyre::{Result, bail};
@@ -438,5 +438,60 @@ impl Repository {
         }
 
         Ok(())
+    }
+
+    /// List all the changes as [`FileChange`] objects between
+    /// the current snapshot and the current working directory.
+    pub fn list_changes(&self) -> Result<Vec<FileChange>> {
+        let old_files = self.fetch_current_snapshot()?.files;
+
+        let old_paths: HashSet<PathBuf> = old_files
+            .keys()
+            .cloned()
+            .collect();
+
+        let new_paths: HashSet<PathBuf> = self.staged_files
+            .iter()
+            .cloned()
+            .collect();
+
+        let mut file_changes: Vec<FileChange> = vec![];
+
+        file_changes.extend(
+            new_paths
+                .difference(&old_paths)
+                .map(|p| FileChange::Added(p.clone()))
+        );
+
+        file_changes.extend(
+            old_paths
+                .difference(&new_paths)
+                .map(|p| FileChange::Removed(p.clone()))
+        );
+
+        file_changes.extend(
+            new_paths
+                .iter()
+                .filter_map(|p| (!p.exists()).then_some(FileChange::Missing(p.clone())))
+        );
+
+        for (path, hash) in old_files {
+            if !path.exists() {
+                continue;
+            }
+
+            let content = fs::read_to_string(&path)?;
+
+            let content_hash = hash_raw_bytes(&content);
+            
+            if hash == content_hash {
+                file_changes.push(FileChange::Unchanged(path));
+            }
+            else {
+                file_changes.push(FileChange::Edited(path));
+            }
+        }
+
+        Ok(file_changes)
     }
 }

@@ -16,8 +16,9 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    let mut valid_commits: HashSet<ObjectHash> = HashSet::new();
     let mut valid_blobs: HashSet<PathBuf> = HashSet::new();
+    
+    let mut valid_commits: HashSet<ObjectHash> = HashSet::new();
 
     let mut queue: VecDeque<ObjectHash> = VecDeque::from_iter(repo.branches.values().cloned());
 
@@ -42,6 +43,8 @@ pub fn parse(args: Args) -> Result<()> {
             continue;
         }
 
+        valid_commits.insert(current);
+        
         valid_blobs.insert(repo.hash_to_path(current));
 
         let snapshot = repo.fetch_snapshot(current)?;
@@ -76,7 +79,7 @@ pub fn parse(args: Args) -> Result<()> {
 
         return Ok(());
     }
-
+    
     for stash in &repo.stashes {
         let snapshot = repo.fetch_snapshot(stash.snapshot)?;
 

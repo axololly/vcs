@@ -1,21 +1,21 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use derive_more::Display;
 
 #[derive(Display)]
-pub enum FileChange<'path> {
+pub enum FileChange {
     #[display("ADDED       {}", _0.display())]
-    Added(&'path Path),
+    Added(PathBuf),
 
     #[display("REMOVED     {}", _0.display())]
-    Removed(&'path Path),
+    Removed(PathBuf),
     
     #[display("EDITED      {}", _0.display())]
-    Edited(&'path Path),
+    Edited(PathBuf),
 
     #[display("UNCHANGED   {}", _0.display())]
-    Unchanged(&'path Path),
+    Unchanged(PathBuf),
 
     #[display("MISSING     {}", _0.display())]
-    Missing(&'path Path)
+    Missing(PathBuf)
 }
