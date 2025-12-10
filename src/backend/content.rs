@@ -63,6 +63,7 @@ pub enum Content {
 }
 
 impl Content {
+    /// Obtain a `String` from [`Content`] by potentially resolving deltas.
     pub fn resolve(self, repo: &Repository) -> Result<String> {
         Ok(match self {
             Self::Literal(string) => string,

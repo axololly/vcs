@@ -71,7 +71,7 @@ pub enum Commands {
     Changes(changes::Args),
 
     /// Clean out unused objects and reset the edit stack.
-    Clean(clean::Args),
+    Clean,
 
     /// Undo an action.
     Undo(undo::Args),
@@ -131,7 +131,7 @@ pub fn main() -> eyre::Result<()> {
         Diff(args) => diff::parse(args),
         Update => update::parse(),
         Changes(args) => changes::parse(args),
-        Clean(args) => clean::parse(args),
+        Clean => clean::parse(),
         Undo(args) => undo::parse(args),
         Redo(args) => redo::parse(args),
         Log(args) => log::parse(args),

@@ -2,18 +2,9 @@ use std::{collections::{HashSet, VecDeque}, fs, path::PathBuf};
 
 use crate::{backend::{hash::ObjectHash, repository::Repository}, unwrap, utils::resolve_wildcard_path};
 
-use clap::Args as A;
 use eyre::Result;
 
-#[derive(A)]
-pub struct Args {
-    /// Only clean out invalid commits from the repository.
-    /// This does not remove anything from disk.
-    #[arg(long = "commits-only")]
-    commits_only: bool
-}
-
-pub fn parse(args: Args) -> Result<()> {
+pub fn parse() -> Result<()> {
     let mut repo = Repository::load()?;
 
     let mut valid_blobs: HashSet<PathBuf> = HashSet::new();
@@ -39,10 +30,6 @@ pub fn parse(args: Args) -> Result<()> {
         
         queue.extend(parents.iter());
 
-        if args.commits_only {
-            continue;
-        }
-
         valid_commits.insert(current);
         
         valid_blobs.insert(repo.hash_to_path(current));
@@ -59,26 +46,7 @@ pub fn parse(args: Args) -> Result<()> {
         repo.history.remove(to_remove);
     }
 
-    if args.commits_only {
-        println!("Removed {removed} commits from the repository graph.");
-
-        repo.save()?;
-
-        return Ok(());
-    }
-
-    let all_commits: HashSet<ObjectHash> = repo.history.iter_hashes().collect();
-    let removed = all_commits.difference(&valid_commits).count();
-
-    for &to_remove in all_commits.difference(&valid_commits) {
-        repo.history.remove(to_remove);
-    }
-
-    if args.commits_only {
-        println!("Removed {removed} commits from the repository.");
-
-        return Ok(());
-    }
+    println!("Removed {removed} snapshots from the repository history.");
     
     for stash in &repo.stashes {
         let snapshot = repo.fetch_snapshot(stash.snapshot)?;
@@ -103,7 +71,7 @@ pub fn parse(args: Args) -> Result<()> {
         removed += 1;
     }
 
-    println!("Removed {removed} objects.");
+    println!("Removed {removed} blobs from disk.");
 
     repo.action_history.clear();
 

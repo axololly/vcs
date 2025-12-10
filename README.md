@@ -1,6 +1,6 @@
 # Version Control System
 
-Update: Fuck my life. Probably gonna use this as part of my school project too, which will save me time. :100:
+Update: Doing fine now. I decided to talk about how dogshit Windows is for my project, so it works out in the end. :100:
 
 ## This isn't real!
 

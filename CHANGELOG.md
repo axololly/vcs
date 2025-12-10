@@ -17,7 +17,7 @@ Categories are as follows:
 - `Fixed` for any bug fixes
 - `Security` in case of vulnerabilities
 
-## \[Unreleased\]
+## v0.6.0
 
 ### Added
 
@@ -39,7 +39,6 @@ Categories are as follows:
 - Privatised `Trash::entries`
 - Introduced `save_as_msgpack` which writes a `serde` object to a path as MessagePack
 - Commit and stash messages now have the ability to take a message
-- `asc clean` now takes arguments
 
 ### Fixed
 
