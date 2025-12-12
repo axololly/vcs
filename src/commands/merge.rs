@@ -212,7 +212,7 @@ pub fn parse(args: Args) -> Result<()> {
 
     let mut hasher = Sha1::new();
     
-    let author = repo.current_user.clone();
+    let author = repo.current_user().name.clone();
 
     hasher.update(&author);
 

@@ -40,7 +40,7 @@ pub fn parse(args: Args) -> Result<()> {
 
     let repo = Repository::create_new(&root_dir, author, project_name)?;
 
-    println!("Created new project {:?} in {} (user: {})", repo.project_name, repo.root_dir.display(), repo.current_user);
+    println!("Created new project {:?} in {} (user: {})", repo.project_name, repo.root_dir.display(), repo.current_user().name);
 
     Ok(())
 }

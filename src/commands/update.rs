@@ -32,6 +32,8 @@ pub fn parse() -> Result<()> {
 
     println!("Added {} files, removed {} files", added, removed);
 
+    repo.staged_files = new.into_iter().collect();
+
     repo.save()?;
 
     Ok(())

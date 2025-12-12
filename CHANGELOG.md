@@ -17,6 +17,22 @@ Categories are as follows:
 - `Fixed` for any bug fixes
 - `Security` in case of vulnerabilities
 
+## \[Unreleased\]
+
+### Added
+
+- Added user accounts to the repository
+
+### Changed
+
+- `Repository::current_user` became `Repository::current_username` and was restricted to the crate
+- `Repository::current_user` is now a method that retrieves a `&User` for the current user
+
+### Fixed
+
+- `asc update` didn't refill `Repository::staged_files`
+
+
 ## v0.6.0
 
 ### Added

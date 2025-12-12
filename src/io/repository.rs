@@ -1,6 +1,6 @@
 use std::{collections::{BTreeMap, HashMap, HashSet}, env::current_dir, fs, path::{Path, PathBuf}};
 
-use crate::{backend::{action::ActionHistory, change::FileChange, content::{Content, Delta, RawContent}, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, hash_raw_bytes, open_file, remove_path, save_as_msgpack}};
+use crate::{backend::{action::ActionHistory, change::FileChange, content::{Content, Delta, RawContent}, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash, user::{get_random_password, Permissions, Users}}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, hash_raw_bytes, open_file, remove_path, save_as_msgpack}};
 
 use chrono::Local;
 use eyre::{Result, bail};
@@ -47,7 +47,6 @@ impl Repository {
             bail!("{} is not a directory.", root_dir.display());
         }
         
-        // Where everything will live.
         let content_dir = root_dir.join(".asc");
 
         if content_dir.exists() && content_dir.is_dir() {
@@ -62,12 +61,24 @@ impl Repository {
             fs::create_dir_all(label)?;
         }
 
-        // An ignore file for the repository.
         create_file(root_dir.join(".ascignore"))?;
 
         let mut branches = HashMap::new();
 
         branches.insert("main".to_string(), ObjectHash::root());
+
+        let mut users = Users::new();
+
+        users.create_user_with_permissions(
+            &author,
+            &get_random_password(10),
+            Permissions::all()
+        )?;
+
+        users.create_user(
+            "everyone",
+            &get_random_password(10)
+        )?;
 
         let repo = Repository {
             project_name: project_name,
@@ -75,13 +86,14 @@ impl Repository {
             root_dir,
             action_history: ActionHistory::new(),
             history: Graph::new(),
-            current_user: author.clone(),
             branches,
             current_hash: ObjectHash::root(),
+            current_username: author.clone(),
             staged_files: vec![],
             stashes: vec![],
             trash: Trash::new(),
-            tags: HashMap::new()
+            tags: HashMap::new(),
+            users
         };
 
         let root_snapshot = Snapshot {
@@ -127,6 +139,9 @@ impl Repository {
         let fp = open_file(content_dir.join("tags"))?;
         let tags: HashMap<String, ObjectHash> = rmp_serde::from_read(fp)?;
 
+        let fp = open_file(content_dir.join("users"))?;
+        let users: Users = rmp_serde::from_read(fp)?;
+
         let repo = Repository {
             project_name: info.project_name,
             ignore_matcher: get_ignore_matcher(&root_dir)?,
@@ -135,11 +150,12 @@ impl Repository {
             history,
             branches: info.branches,
             current_hash: info.current_hash,
-            current_user: info.current_user,
+            current_username: info.current_user,
             staged_files,
             stashes: info.stashes,
             trash,
-            tags
+            tags,
+            users
         };
 
         Ok(repo)
@@ -149,7 +165,7 @@ impl Repository {
     pub fn save(&self) -> Result<()> {
         let info = ProjectInfo {
             project_name: self.project_name.clone(),
-            current_user: self.current_user.clone(),
+            current_user: self.current_username.clone(),
             branches: self.branches.clone(),
             current_hash: self.current_hash,
             stashes: self.stashes.clone()
@@ -183,7 +199,11 @@ impl Repository {
         save_as_msgpack(&self.trash, content_dir.join("trash"))?;
 
         save_as_msgpack(&self.tags, content_dir.join("tags"))?;
-        
+
+        let users_dir = content_dir.join("users");
+
+        save_as_msgpack(&self.users, users_dir.join("credentials"))?;
+
         Ok(())
     }
 }

@@ -26,8 +26,6 @@ pub static COMMIT_TEMPLATE_MESSAGE: &str = "
 # Whitespace before and after the message is also ignored.
 ";
 
-// TODO: Prevent making commits (+ stashes) if there are missing files
-
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
@@ -52,7 +50,7 @@ pub fn parse(args: Args) -> Result<()> {
         get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
     };
 
-    let author = repo.current_user.to_string();
+    let author = repo.current_user().name.clone();
 
     let snapshot = repo.capture_current_state(author, message)?;
 

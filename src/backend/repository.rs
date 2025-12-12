@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::{Path, PathBuf}};
 
-use crate::backend::{action::{Action, ActionHistory}, graph::Graph, hash::ObjectHash, snapshot::Snapshot, stash::Stash, trash::{Entry, Trash, TrashStatus}};
+use crate::backend::{action::{Action, ActionHistory}, graph::Graph, hash::ObjectHash, snapshot::Snapshot, stash::Stash, trash::{Entry, Trash, TrashStatus}, user::{User, Users}};
 
 use eyre::{Result, bail};
 use ignore::gitignore::Gitignore;
@@ -12,15 +12,23 @@ pub struct Repository {
     pub action_history: ActionHistory,
     pub branches: HashMap<String, ObjectHash>,
     pub current_hash: ObjectHash,
-    pub current_user: String,
+    pub(crate) current_username: String,
     pub staged_files: Vec<PathBuf>,
     pub ignore_matcher: Gitignore,
     pub stashes: Vec<Stash>,
     pub trash: Trash,
-    pub tags: HashMap<String, ObjectHash>
+    pub tags: HashMap<String, ObjectHash>,
+    pub users: Users
 }
 
 impl Repository {
+    /// Get the current user of the repository as a [`User`].
+    pub fn current_user(&self) -> &User {
+        self.users
+            .get_user(&self.current_username)
+            .unwrap()
+    }
+
     /// Get the branch the repository is currently on.
     /// 
     /// This is only found if the `current_hash` points to a branch tip.
@@ -131,7 +139,7 @@ impl Repository {
         let as_hex = hex::decode(raw_hash)?;
 
         if as_hex.is_empty() {
-            bail!("attempted to normalise stash hash.");
+            bail!("attempted to normalise empty stash hash.");
         }
 
         let stash_ids = self.stashes

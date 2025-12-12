@@ -7,3 +7,4 @@ pub mod snapshot;
 pub mod stash;
 pub mod graph;
 pub mod trash;
+pub mod user;

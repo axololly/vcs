@@ -121,7 +121,7 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
             )?;
 
             let snapshot = repo.capture_current_state(
-                repo.current_user.clone(),
+                repo.current_user().name.clone(),
                 message
             )?;
 

@@ -16,12 +16,13 @@ mod log;
 mod rebase;
 mod redo;
 mod remove;
-mod tag;
-mod trash;
 mod stash;
 mod switch;
+mod tag;
+mod trash;
 mod undo;
 mod update;
+mod user;
 
 use clap::{Parser, Subcommand};
 
@@ -111,7 +112,11 @@ pub enum Commands {
 
     /// Alias a snapshot in the repository.
     #[command(subcommand)]
-    Tag(tag::Subcommands)
+    Tag(tag::Subcommands),
+
+    /// Manage users in the repository.
+    #[command(subcommand)]
+    User(user::Subcommands)
 }
 
 pub fn main() -> eyre::Result<()> {
@@ -143,6 +148,7 @@ pub fn main() -> eyre::Result<()> {
         Modify(args) => modify::parse(args),
         Rebase(args) => rebase::parse(args),
         Blame(args) => blame::parse(args),
-        Tag(subcommand) => tag::parse(subcommand)
+        Tag(subcommand) => tag::parse(subcommand),
+        User(subcommand) => user::parse(subcommand)
     }
 }
