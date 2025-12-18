@@ -32,7 +32,40 @@ pub struct Snapshot {
     pub files: BTreeMap<PathBuf, ObjectHash>
 }
 
+fn hash_from_parts(
+    author: &str,
+    message: &str,
+    timestamp: &DateTime<Local>,
+    files: &BTreeMap<PathBuf, ObjectHash>
+) -> ObjectHash
+{
+    let mut hasher = Sha1::new();
+
+    hasher.update(author.as_bytes());
+    
+    hasher.update(message.as_bytes());
+
+    hasher.update(timestamp.timestamp().to_le_bytes());
+
+    for (_, hash) in files {
+        hasher.update(hash.as_bytes());
+    }
+
+    let raw_hash: [u8; 20] = hasher.finalize().into();
+
+    raw_hash.into()
+}
+
 impl Snapshot {
+    pub fn validate_hash(&self) -> bool {
+        self.hash == hash_from_parts(
+            &self.author,
+            &self.message,
+            &self.timestamp,
+            &self.files
+        )
+    }
+
     pub fn from_parts(
         author: String,
         message: String,
@@ -40,22 +73,15 @@ impl Snapshot {
         files: BTreeMap<PathBuf, ObjectHash>
     ) -> Snapshot
     {
-        let mut snapshot_hasher = Sha1::new();
-
-        snapshot_hasher.update(author.as_bytes());
+        let hash = hash_from_parts(
+            &author,
+            &message,
+            &timestamp,
+            &files
+        );
         
-        snapshot_hasher.update(message.as_bytes());
-
-        snapshot_hasher.update(timestamp.timestamp().to_le_bytes());
-
-        for (_, hash) in &files {
-            snapshot_hasher.update(hash.as_bytes());
-        }
-
-        let raw_snapshot_hash: [u8; 20] = snapshot_hasher.finalize().into();
-
         Snapshot {
-            hash: raw_snapshot_hash.into(),
+            hash,
             author,
             message,
             timestamp,

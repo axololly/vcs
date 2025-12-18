@@ -7,6 +7,7 @@ use ignore::gitignore::Gitignore;
 
 pub struct Repository {
     pub project_name: String,
+    pub project_code: ObjectHash,
     pub root_dir: PathBuf,
     pub history: Graph,
     pub action_history: ActionHistory,

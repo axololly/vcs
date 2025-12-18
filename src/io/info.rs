@@ -8,6 +8,7 @@ use crate::{backend::{hash::ObjectHash, stash::Stash}, utils::{create_file, open
 #[derive(Deserialize, Serialize)]
 pub struct ProjectInfo {
     pub project_name: String,
+    pub project_code: ObjectHash,
     pub current_user: String,
     pub branches: HashMap<String, ObjectHash>,
     pub current_hash: ObjectHash,

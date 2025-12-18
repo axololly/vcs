@@ -22,6 +22,7 @@ Categories are as follows:
 ### Added
 
 - Added user accounts to the repository
+- Added project codes to repositories so you can't sync to unrelated repositories
 
 ### Changed
 

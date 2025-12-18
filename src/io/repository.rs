@@ -80,8 +80,13 @@ impl Repository {
             &get_random_password(10)
         )?;
 
+        let now = Local::now().timestamp();
+
+        let project_code = hash_raw_bytes(now.to_le_bytes());
+
         let repo = Repository {
             project_name: project_name,
+            project_code,
             ignore_matcher: get_ignore_matcher(&root_dir)?,
             root_dir,
             action_history: ActionHistory::new(),
@@ -144,6 +149,7 @@ impl Repository {
 
         let repo = Repository {
             project_name: info.project_name,
+            project_code: info.project_code,
             ignore_matcher: get_ignore_matcher(&root_dir)?,
             root_dir,
             action_history,
@@ -165,6 +171,7 @@ impl Repository {
     pub fn save(&self) -> Result<()> {
         let info = ProjectInfo {
             project_name: self.project_name.clone(),
+            project_code: self.project_code,
             current_user: self.current_username.clone(),
             branches: self.branches.clone(),
             current_hash: self.current_hash,

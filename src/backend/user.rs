@@ -1,41 +1,10 @@
 use std::{collections::HashMap, sync::LazyLock};
 
-use argon2::{
-    password_hash::{
-        rand_core::OsRng, Error::Password as InvalidPassword, PasswordHash, PasswordHasher, PasswordVerifier, SaltString
-    },
-    Argon2
-};
 use bitflags::bitflags;
 use derive_more::Display;
 use eyre::Result;
+use keyring::Entry;
 use serde::{Deserialize, Serialize};
-
-fn hash_password<'a>(password: &'a str) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
-
-    // Argon2 with default params (Argon2id v19)
-    let argon2 = Argon2::default();
-
-    // Hash password to PHC string ($argon2id$v=19$...)
-    let password_hash = argon2.hash_password(password.as_bytes(), &salt)?;
-
-    Ok(password_hash.to_string())
-}
-
-fn check_password(attempt: &str, hash: &str) -> Result<bool> {
-    let password_hash = PasswordHash::new(&hash)?;
-
-    let ctx = Argon2::default();
-
-    let result = ctx.verify_password(attempt.as_bytes(), &password_hash);
-
-    match result {
-        Ok(_) => Ok(true),
-        Err(InvalidPassword) => Ok(false),
-        Err(e) => Err(From::from(e))
-    }
-}
 
 /// Generate a random alphanumeric string to be used as a
 /// template password for default accounts.
@@ -132,7 +101,6 @@ impl TryFrom<String> for Permissions {
 #[derive(Deserialize, Serialize)]
 pub struct User {
     pub name: String,
-    pub password: String,
     pub permissions: Permissions
 }
 
@@ -158,23 +126,35 @@ impl User {
     {
         let name = username.to_string();
 
-        let password = hash_password(password)?;
+        let entry = Entry::new("asc-creds", username)?;
+
+        entry.set_password(password)?;
 
         Ok(User {
             name,
-            password,
             permissions
         })
     }
 
+    /// Retrieve the password for this user from the OS.
+    pub fn password(&self) -> Result<String> {
+        let entry = Entry::new("asc-creds", &self.name)?;
+
+        let password = entry.get_password()?;
+
+        Ok(password)
+    }
+
     /// Check if a given password is the correct password for this account.
-    pub fn check_password(&self, password: &str) -> Result<bool> {
-        check_password(password, &self.password)
+    pub fn validate_password(&self, password: &str) -> Result<bool> {
+        Ok(password == &self.password()?)
     }
 
     /// Overwrite the existing password for this [`User`].
     pub fn change_password(&mut self, password: &str) -> Result<()> {
-        self.password = hash_password(password)?;
+        let entry = Entry::new("asc-creds", &self.name)?;
+
+        entry.set_password(password)?;
 
         Ok(())
     }
