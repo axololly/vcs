@@ -28,6 +28,8 @@ Categories are as follows:
 
 - `Repository::current_user` became `Repository::current_username` and was restricted to the crate
 - `Repository::current_user` is now a method that retrieves a `&User` for the current user
+- Created two separate crates: `libasc` for the implementation and `asc` for the CLI
+- `manyterm` and `xdelta3-rs` are now included in the project as Git repositories instead of local folders
 
 ### Fixed
 
