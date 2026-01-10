@@ -120,10 +120,14 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
                 }
             )?;
 
-            let snapshot = repo.capture_current_state(
-                repo.current_user().name.clone(),
-                message
-            )?;
+            let user = unwrap!(
+                repo.current_user(),
+                "no valid user is set for this repository."
+            );
+
+            let author = user.name.clone();
+
+            let snapshot = repo.capture_current_state(author, message)?;
 
             let stash = Stash {
                 snapshot: snapshot.hash,
@@ -180,11 +184,11 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
 
             let snapshot = repo.fetch_snapshot(stash.snapshot)?;
 
-            repo.replace_cwd_with_snapshot(&snapshot)?;
-
             let before = repo.current_hash;
 
             let after = stash.basis;
+
+            repo.replace_cwd_with_snapshot(&snapshot)?;
 
             repo.current_hash = after;
 

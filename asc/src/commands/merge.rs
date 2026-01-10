@@ -1,6 +1,6 @@
 use std::{collections::{BTreeMap, HashMap, HashSet, VecDeque}, path::PathBuf};
 
-use chrono::Local;
+use chrono::Utc;
 use clap::Args as A;
 
 use eyre::{Result, bail};
@@ -214,7 +214,12 @@ pub fn parse(args: Args) -> Result<()> {
 
     let mut hasher = Sha1::new();
     
-    let author = repo.current_user().name.clone();
+    let user = unwrap!(
+        repo.current_user(),
+        "no valid user is set for this repository."
+    );
+
+    let author = user.name.clone();
 
     hasher.update(&author);
 
@@ -268,10 +273,10 @@ pub fn parse(args: Args) -> Result<()> {
         files.insert(path, hash);
     }
 
-    let snapshot = Snapshot::from_parts(
+    let snapshot = Snapshot::new(
         author,
         message,
-        Local::now(),
+        Utc::now(),
         files
     );
 
@@ -293,12 +298,12 @@ pub fn parse(args: Args) -> Result<()> {
         return Ok(());
     }
 
-    repo.save_snapshot(&snapshot)?;
+    repo.save_snapshot(snapshot.clone())?;
 
     repo.history.remove(snapshot.hash);
 
-    repo.history.insert(snapshot.hash, repo.current_hash);
-    repo.history.insert(snapshot.hash, target);
+    repo.history.insert(snapshot.hash, repo.current_hash)?;
+    repo.history.insert(snapshot.hash, target)?;
 
     if let Some(name) = repo.current_branch() {
         repo.branches.insert(name.to_string(), snapshot.hash);

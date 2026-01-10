@@ -2,7 +2,7 @@ use clap::Subcommand;
 use color_eyre::owo_colors::OwoColorize;
 use eyre::{Result, bail};
 
-use libasc::repository::Repository;
+use libasc::{action::Action, repository::Repository, unwrap};
 
 #[derive(Subcommand)]
 pub enum Subcommands {
@@ -13,7 +13,11 @@ pub enum Subcommands {
     #[command(visible_alias = "create")]
     New {
         /// The name of the branch.
-        name: String
+        name: String,
+
+        /// The version this branch refers to.
+        /// Defaults to the current version.
+        basis: Option<String>
     },
 
     /// Delete a branch.
@@ -56,24 +60,52 @@ pub fn parse(command: Subcommands) -> Result<()> {
             }
         }
 
-        New { name } => {
+        New { name, basis } => {
+            let base_version = if let Some(version) = basis {
+                repo.normalise_version(&version)?
+            }
+            else {
+                repo.current_hash
+            };
+            
             if repo.branches.contains_key(&name) {
-                bail!("branch {name:?} already exists");
+                bail!("branch {name:?} already exists.");
             }
 
-            println!("Created new branch: {name}");
+            if let Some(branch_name) = repo.branch_from_hash(base_version) {
+                println!("Created new branch: {name} -> {branch_name} ({base_version})");
+            }
+            else {
+                println!("Created new branch: {name} -> {base_version}");
+            }
 
-            repo.branches.insert(name, repo.current_hash);
+            repo.branches.insert(name.clone(), base_version);
+
+            repo.action_history.push(
+                Action::CreateBranch {
+                    hash: repo.current_hash,
+                    name
+                }
+            );
         }
 
         Rename { old, new } => {
-            let Some(commit_hash) = repo.branches.remove(&old) else {
-                bail!("branch {old:?} does not exist");
-            };
+            let commit_hash = unwrap!(
+                repo.branches.remove(&old),
+                "branch {old:?} does not exist"
+            );
 
             println!("Renamed: {old} -> {new}");
 
-            repo.branches.insert(new, commit_hash);
+            repo.branches.insert(new.clone(), commit_hash);
+
+            repo.action_history.push(
+                Action::RenameBranch {
+                    hash: commit_hash,
+                    old,
+                    new
+                }
+            );
         }
 
         Delete { name } => {
@@ -82,6 +114,13 @@ pub fn parse(command: Subcommands) -> Result<()> {
             };
 
             println!("Branch {name:?} no longer points to {was_pointing_to}.");
+
+            repo.action_history.push(
+                Action::DeleteBranch {
+                    hash: was_pointing_to,
+                    name
+                }
+            );
         }
 
         List { verbose } => {

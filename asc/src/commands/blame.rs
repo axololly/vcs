@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, path::PathBuf, rc::Rc};
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 use clap::Args as A;
 use eyre::{Result, bail};
 use unicode_width::UnicodeWidthStr;
@@ -19,13 +19,13 @@ pub struct Args {
 struct CommitInfo<'a> {
     hash: ObjectHash,
     author: &'a str,
-    timestamp: DateTime<Local>,
+    timestamp: DateTime<Utc>,
 }
 
 struct SnapshotData {
     hash: ObjectHash,
     author: String,
-    timestamp: DateTime<Local>,
+    timestamp: DateTime<Utc>,
     content: String
 }
 
@@ -55,8 +55,8 @@ pub fn parse(args: Args) -> Result<()> {
 
         snapshots.push(SnapshotData {
             hash: snapshot.hash,
-            author: snapshot.author,
-            timestamp: snapshot.timestamp,
+            author: snapshot.author().to_string(),
+            timestamp: snapshot.timestamp(),
             content: repo.fetch_string_content(content_hash)?.resolve(&repo)?
         });
 

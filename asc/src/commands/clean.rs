@@ -13,9 +13,7 @@ pub fn parse() -> Result<()> {
 
     let mut queue: VecDeque<ObjectHash> = VecDeque::from_iter(repo.branches.values().cloned());
 
-    loop {
-        let Some(current) = queue.pop_front() else { break };
-
+    while let Some(current) = queue.pop_front() {
         if current.is_root() {
             break;
         }

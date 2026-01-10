@@ -1,11 +1,318 @@
-use std::{collections::{BTreeMap, HashMap, HashSet}, env::current_dir, fs, path::{Path, PathBuf}};
+use std::{cell::RefCell, collections::{BTreeMap, HashMap, HashSet}, env::current_dir, fs, io::Write, path::{Path, PathBuf}};
 
-use crate::{core::{action::ActionHistory, change::FileChange, content::{Content, Delta, RawContent}, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, trash::Trash, user::{get_random_password, Permissions, Users}}, io::info::ProjectInfo, unwrap, utils::{compress_data, create_file, hash_raw_bytes, open_file, remove_path, save_as_msgpack}};
+use crate::{change::FileChange, compress_data, content::{Content, Delta}, action::{Action, ActionHistory}, graph::Graph, hash::ObjectHash, snapshot::Snapshot, stash::Stash, trash::{Entry, Trash, TrashStatus}, user::{User, Users}, create_file, hash_raw_bytes, open_file, remove_path, save_as_msgpack, snapshot::SignedSnapshot, unwrap, user::Permissions};
 
-use chrono::Local;
+use chrono::Utc;
 use eyre::{Result, bail};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use serde::{Deserialize, Serialize};
 use similar::TextDiff;
+
+pub struct Repository {
+    pub project_name: String,
+    pub project_code: ObjectHash,
+    pub root_dir: PathBuf,
+    pub history: Graph,
+    pub action_history: ActionHistory,
+    pub branches: HashMap<String, ObjectHash>,
+    pub current_hash: ObjectHash,
+    pub staged_files: Vec<PathBuf>,
+    pub ignore_matcher: Gitignore,
+    pub stashes: Vec<Stash>,
+    pub trash: Trash,
+    pub tags: HashMap<String, ObjectHash>,
+    pub users: Users,
+
+    current_username: RefCell<Option<String>>
+}
+
+impl Repository {
+    /// Get the current user of the repository as a [`User`].
+    /// 
+    /// If the current user has any issues preventing its use,
+    /// it will automatically be reset to `None`. These are if:
+    /// 
+    /// - the user doesn't exist
+    /// - the user has no associated private key
+    /// - the user's account is marked as closed
+    pub fn current_user(&self) -> Option<&User> {
+        let username = self.current_username.take()?;
+
+        let user = self.users.get_user(&username)?;
+
+        if user.closed || user.private_key.is_none() {
+            return None;
+        }
+
+        self.current_username.replace(Some(username));
+
+        Some(user)
+    }
+
+    /// Get the current user of the repository as a mutable [`User`].
+    /// 
+    /// If the current user has any issues preventing its use,
+    /// it will automatically be reset to `None`. These are if:
+    /// 
+    /// - the user doesn't exist
+    /// - the user has no associated private key
+    /// - the user's account is marked as closed
+    pub fn current_user_mut(&mut self) -> Option<&mut User> {
+        let username = self.current_username.take()?;
+
+        let user = self.users.get_user_mut(&username)?;
+
+        if user.closed || user.private_key.is_none() {
+            return None;
+        }
+
+        self.current_username.replace(Some(username));
+
+        Some(user)
+    }
+
+    /// Change the current user of the repository.
+    pub fn set_current_user(&mut self, username: &str) -> Result<()> {
+        let user = unwrap!(
+            self.users.get_user(username),
+            "no user with name {username:?} exists in the repository."
+        );
+
+        if user.closed {
+            bail!("cannot switch to closed user {username:?}");
+        }
+
+        if user.private_key.is_none() {
+            bail!("cannot switch to user {username:?} (no private key)");
+        }
+
+        self.current_username.replace(Some(username.to_string()));
+
+        Ok(())
+    }
+
+    /// Get the branch the repository is currently on.
+    /// 
+    /// This is only found if the `current_hash` points to a branch tip.
+    /// Any other snapshot will result in `None`.
+    pub fn current_branch(&self) -> Option<&str> {
+        self.branch_from_hash(self.current_hash)
+    }
+
+    /// Get the name of a branch from its hash.
+    /// 
+    /// This is only found if the hash points to a branch tip.
+    /// Any other snapshot will result in `None`.
+    pub fn branch_from_hash(&self, commit_hash: ObjectHash) -> Option<&str> {
+        self.branches
+            .iter()
+            .filter_map(|(name, &hash)| {
+                if hash == commit_hash {
+                    Some(name.as_str())
+                }
+                else {
+                    None
+                }
+            })
+            .next()
+    }
+
+    /// Find if the `current_hash` doesn't point to the tip of any branch.
+    pub fn is_head_detached(&self) -> bool {
+        self.current_branch().is_none()
+    }
+
+    fn append_snapshot_internal(&mut self, snapshot: Snapshot, branch_name: Option<String>) -> Result<()> {
+        if !self.has_unsaved_changes()? {
+            bail!("no changes have been made in the current working directory.");
+        }
+
+        self.history.insert(snapshot.hash, self.current_hash)?;
+
+        if let Some(name) = branch_name {
+            self.branches.insert(name, snapshot.hash);
+        }
+
+        self.current_hash = snapshot.hash;
+        
+        self.save_snapshot(snapshot)?;
+        
+        Ok(())
+    }
+
+    /// Append a snapshot to the tip of the current branch,
+    /// moving the branch pointer to point to the added snapshot.
+    pub fn append_snapshot(&mut self, snapshot: Snapshot) -> Result<()> {
+        self.append_snapshot_internal(snapshot, self.current_branch().map(String::from))
+    }
+
+    /// Append a snapshot to the tip of any branch,
+    /// moving that branch's pointer to point to the added snapshot.
+    pub fn append_snapshot_to_branch(&mut self, snapshot: Snapshot, branch_name: String) -> Result<()> {
+        self.append_snapshot_internal(snapshot, Some(branch_name))
+    }
+
+    /// Check if a given path is ignored by the `.ascignore`
+    /// file in the repository, if it is present.
+    pub fn is_ignored_path(&self, path: &Path) -> bool {
+        self.ignore_matcher.matched(path, path.is_dir()).is_ignore()
+    }
+
+    fn normalise_hash_internal(&self, iter: impl Iterator<Item = ObjectHash>, needle: &[u8]) -> Option<ObjectHash> {
+        for hash in iter {
+            let bytes: &[u8] = hash.as_bytes();
+
+            if bytes.starts_with(needle) {
+                return Some(hash);
+            }
+        }
+
+        None
+    }
+
+    /// Convert a smaller hash in string form into its full [`ObjectHash`] version.
+    /// 
+    /// This works only for snapshots. For identifying stash hashes, use
+    /// [`Repository::normalise_stash_hash`].
+    pub fn normalise_hash(&self, raw_hash: &str) -> Result<ObjectHash> {
+        let as_hex = hex::decode(raw_hash)?;
+
+        if as_hex.is_empty() {
+            bail!("attempted to normalise empty snapshot hash.");
+        }
+
+        let commit_hashes = self
+            .history
+            .iter_hashes();
+
+        if let Some(normalised) = self.normalise_hash_internal(commit_hashes, &as_hex) {
+            Ok(normalised)
+        }
+        else {
+            bail!("could not resolve hash: {raw_hash:?}");
+        }
+    }
+
+    /// Convert a smaller hash in string form into its full [`ObjectHash`] version.
+    /// 
+    /// This works only for stashes. For identifying snapshot hashes, use
+    /// [`Repository::normalise_hash`].
+    pub fn normalise_stash_hash(&self, raw_hash: &str) -> Result<ObjectHash> {
+        let as_hex = hex::decode(raw_hash)?;
+
+        if as_hex.is_empty() {
+            bail!("attempted to normalise empty stash hash.");
+        }
+
+        let stash_ids = self.stashes
+            .iter()
+            .map(|s| s.snapshot);
+
+        if let Some(normalised) = self.normalise_hash_internal(stash_ids, &as_hex) {
+            Ok(normalised)
+        }
+        else {
+            bail!("could not resolve hash: {raw_hash:?}");
+        }
+    }
+
+    /// Convert a version in string form into its full [`ObjectHash`] version
+    /// by trying to interpret it as a branch name, then trying to interpret
+    /// it as the hash of a snapshot.
+    pub fn normalise_version(&self, raw_version: &str) -> Result<ObjectHash> {
+        if let Some(&corresponding_hash) = self.branches.get(raw_version) {
+            Ok(corresponding_hash)
+        }
+        else {
+            self.normalise_hash(raw_version)
+        }
+    }
+
+    fn apply_action(&mut self, action: Action) -> Result<()> {
+        use Action::*;
+
+        match action {
+            RebaseSnapshot { hash, to, .. } => {
+                let previous = self.history.upsert(hash, to);
+
+                if previous.is_none() {
+                    bail!("{hash} does not exist in the repository")
+                }
+            }
+
+            CreateBranch { name, .. } => {
+                self.branches.remove(&name);
+            }
+
+            DeleteBranch { name, hash } => {
+                self.branches.insert(name, hash);
+            }
+
+            RenameBranch { hash, old, new } => {
+                self.branches.remove(&old);
+
+                self.branches.insert(new, hash);
+            }
+
+            SwitchVersion { after, .. } => {
+                self.current_hash = after;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Undo an [`Action`] on the repository, returning the action
+    /// if any changes were made.
+    pub fn undo_action(&mut self) -> Result<Option<Action>> {
+        let Some(action) = self.action_history.undo().cloned() else {
+            return Ok(None)
+        };
+
+        use Action::*;
+
+        let inverse = match action {
+            RebaseSnapshot { hash, from, to } => RebaseSnapshot { hash, from: to, to: from },
+
+            CreateBranch { name, hash } => DeleteBranch { name, hash },
+            DeleteBranch { name, hash } => CreateBranch { name, hash },
+            RenameBranch { hash, old, new } => RenameBranch { hash, old: new, new: old },
+
+            SwitchVersion { before, after } => SwitchVersion { before: after, after: before },
+        };
+
+        self.apply_action(inverse.clone())?;
+
+        Ok(Some(inverse))
+    }
+
+    /// Redo an [`Action`] on the repository, returning the action
+    /// if any changes were made.
+    pub fn redo_action(&mut self) -> Result<Option<Action>> {
+        let Some(action) = self.action_history.redo().cloned() else {
+            return Ok(None)
+        };
+
+        self.apply_action(action.clone())?;
+
+        Ok(Some(action))
+    }
+
+    /// Check if an [`ObjectHash`] of a snapshot is included in the trash.
+    pub fn trash_contains(&self, hash: ObjectHash) -> Option<TrashStatus> {
+        if self.trash.contains(hash) {
+            return Some(TrashStatus::Direct);
+        }
+
+        for Entry { hash: trash_hash, .. } in self.trash.entries() {
+            if self.history.is_descendant(hash, *trash_hash).unwrap() {
+                return Some(TrashStatus::Indirect(*trash_hash));
+            }
+        }
+
+        None
+    }
+}
 
 fn locate_root_dir(from: impl AsRef<Path>) -> Result<Option<PathBuf>> {
     let absolute = from.as_ref().canonicalize()?;
@@ -32,6 +339,36 @@ fn get_ignore_matcher(root_dir: impl AsRef<Path>) -> Result<Gitignore> {
     Ok(matcher)
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct ProjectInfo {
+    pub project_name: String,
+    pub project_code: ObjectHash,
+    pub current_user: Option<String>,
+    pub branches: HashMap<String, ObjectHash>,
+    pub current_hash: ObjectHash,
+    pub stashes: Vec<Stash>
+}
+
+impl ProjectInfo {
+    pub fn from_file(path: impl AsRef<Path>) -> Result<ProjectInfo> {
+        let fp = open_file(path)?;
+
+        let info = rmp_serde::from_read(fp)?;
+
+        Ok(info)
+    }
+
+    pub fn to_file(&self, path: impl AsRef<Path>) -> eyre::Result<()> {
+        let bytes = rmp_serde::to_vec(self)?;
+        
+        let mut fp = create_file(path)?;
+
+        fp.write_all(&bytes)?;
+
+        Ok(())
+    }
+}
+
 impl Repository {
     /// Create a new repository in a given directory.
     /// 
@@ -50,7 +387,7 @@ impl Repository {
         let content_dir = root_dir.join(".asc");
 
         if content_dir.exists() && content_dir.is_dir() {
-            bail!("root directory {} already contains a repository. Remove it and rerun the command.", root_dir.display());
+            bail!("root directory {} already contains a repository", root_dir.display());
         }
 
         let blobs_dir = content_dir.join("blobs");
@@ -67,22 +404,16 @@ impl Repository {
 
         branches.insert("main".to_string(), ObjectHash::root());
 
+        let now = Utc::now().timestamp();
+
+        let project_code = hash_raw_bytes(now.to_le_bytes());
+        
         let mut users = Users::new();
 
         users.create_user_with_permissions(
-            &author,
-            &get_random_password(10),
+            author.clone(),
             Permissions::all()
         )?;
-
-        users.create_user(
-            "everyone",
-            &get_random_password(10)
-        )?;
-
-        let now = Local::now().timestamp();
-
-        let project_code = hash_raw_bytes(now.to_le_bytes());
 
         let repo = Repository {
             project_name,
@@ -93,7 +424,7 @@ impl Repository {
             history: Graph::new(),
             branches,
             current_hash: ObjectHash::root(),
-            current_username: author.clone(),
+            current_username: Some(author.clone()).into(),
             staged_files: vec![],
             stashes: vec![],
             trash: Trash::new(),
@@ -101,15 +432,16 @@ impl Repository {
             users
         };
 
-        let root_snapshot = Snapshot {
+        let mut root_snapshot = Snapshot::new(
             author,
-            hash: ObjectHash::root(),
-            message: "initial snapshot".to_string(),
-            timestamp: Local::now(),
-            files: BTreeMap::new()
-        };
+            "initial snapshot".to_string(),
+            Utc::now(),
+            BTreeMap::new()
+        );
 
-        repo.save_snapshot(&root_snapshot)?;
+        root_snapshot.hash = ObjectHash::root();
+
+        repo.save_snapshot(root_snapshot)?;
 
         repo.save()?;
 
@@ -125,6 +457,15 @@ impl Repository {
         let Some(root_dir) = locate_root_dir(&start)? else {
             bail!("no .acs directory found when searching recursively from: {}", start.display());
         };
+
+        Repository::load_from(root_dir)
+    }
+
+    /// Load the repository from a given directory.
+    /// 
+    /// This does **NOT** search upwards for a valid directory, and will simply fail.
+    pub fn load_from(root_dir: impl AsRef<Path>) -> Result<Repository> {
+        let root_dir = root_dir.as_ref();
 
         let content_dir = root_dir.join(".asc");
 
@@ -150,13 +491,13 @@ impl Repository {
         let repo = Repository {
             project_name: info.project_name,
             project_code: info.project_code,
-            ignore_matcher: get_ignore_matcher(&root_dir)?,
-            root_dir,
+            ignore_matcher: get_ignore_matcher(root_dir)?,
+            root_dir: root_dir.to_path_buf(),
             action_history,
             history,
             branches: info.branches,
             current_hash: info.current_hash,
-            current_username: info.current_user,
+            current_username: info.current_user.into(),
             staged_files,
             stashes: info.stashes,
             trash,
@@ -172,7 +513,7 @@ impl Repository {
         let info = ProjectInfo {
             project_name: self.project_name.clone(),
             project_code: self.project_code,
-            current_user: self.current_username.clone(),
+            current_user: self.current_username.borrow().clone(),
             branches: self.branches.clone(),
             current_hash: self.current_hash,
             stashes: self.stashes.clone()
@@ -207,9 +548,7 @@ impl Repository {
 
         save_as_msgpack(&self.tags, content_dir.join("tags"))?;
 
-        let users_dir = content_dir.join("users");
-
-        save_as_msgpack(&self.users, users_dir.join("credentials"))?;
+        save_as_msgpack(&self.users, content_dir.join("users"))?;
 
         Ok(())
     }
@@ -250,9 +589,9 @@ impl Repository {
             "failed to read bytes from: {}", path.display()
         );
 
-        let raw_content: RawContent = rmp_serde::from_slice(&raw)?;
+        let content: Content = rmp_serde::from_slice(&raw)?;
 
-        raw_content.into_content()
+        Ok(content)
     }
 
     /// Fetch a [`Snapshot`] from the repository, addressed by its hash.
@@ -261,7 +600,9 @@ impl Repository {
         
         let fp = open_file(path)?;
 
-        Ok(rmp_serde::from_read(fp)?)
+        let signed_snapshot: SignedSnapshot = rmp_serde::from_read(fp)?;
+
+        signed_snapshot.verify()
     }
 
     /// Fetch the [`Snapshot`] the HEAD is currently on from the repository.
@@ -287,12 +628,9 @@ impl Repository {
     pub fn save_content_raw(&self, content: &str) -> Result<ObjectHash> {
         let hash = hash_raw_bytes(content);
 
-        let path = self.hash_to_path(hash);
+        let object = Content::Literal(compress_data(content));
 
-        unwrap!(
-            fs::write(&path, compress_data(content)),
-            "failed to write string {content:?} to: {}", path.display()
-        );
+        self.save_content_object(object, hash)?;
 
         Ok(hash)
     }
@@ -323,22 +661,38 @@ impl Repository {
 
         let original = base.resolve(self)?;
 
-        let delta = Delta::new_unchecked(&original, content);
+        let hash = hash_raw_bytes(&original);
 
-        let hash = hash_raw_bytes(content);
+        let delta = Content::Delta(Delta::new_unchecked(&original, content));
 
-        let path = self.hash_to_path(hash);
-
-        save_as_msgpack(&delta, path)?;
+        self.save_content_object(delta, hash)?;
 
         Ok(hash)
     }
 
+    /// Save a [`Content`] object, most likely obtained from network transfer.
+    pub fn save_content_object(&self, object: Content, hash: ObjectHash) -> Result<()> {
+        save_as_msgpack(&object, self.hash_to_path(hash))
+    }
+
     /// Save a snapshot as a compressed blob to disk.
-    pub fn save_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
+    pub fn save_snapshot(&self, snapshot: Snapshot) -> Result<()> {
         let path = self.hash_to_path(snapshot.hash);
 
-        save_as_msgpack(snapshot, path)
+        let user = unwrap!(
+            self.current_user(),
+            "cannot save snapshot under current user"
+        );
+
+        let private_key = unwrap!(
+            user.private_key,
+            "cannot save a snapshot under user {:?} (no private key)",
+            user.name
+        );
+
+        let signed = SignedSnapshot::new(snapshot, private_key);
+
+        save_as_msgpack(&signed, path)
     }
 
     /// Assemble a [`Snapshot`] from the repository's tracked files.
@@ -357,16 +711,18 @@ impl Repository {
             files.insert(path.clone(), hash);
         }
 
-        let snapshot = Snapshot::from_parts(
+        let snapshot = Snapshot::new(
             author,
             message,
-            Local::now(),
+            Utc::now(),
             files
         );
 
-        self.save_snapshot(&snapshot)?;
-        
-        Ok(snapshot)
+        let hash = snapshot.hash;
+
+        self.save_snapshot(snapshot)?;
+
+        self.fetch_snapshot(hash)
     }
 }
 
@@ -427,7 +783,7 @@ impl Repository {
     /// 
     /// This is used to switch the repository to a different version,
     /// and will fail if there are unsaved changes.
-    pub fn replace_cwd_with_snapshot(&self, snapshot: &Snapshot) -> Result<()> {
+    pub fn replace_cwd_with_snapshot(&mut self, snapshot: &Snapshot) -> Result<()> {
         if self.has_unsaved_changes()? {
             bail!("cannot change snapshots with unsaved changes.");
         }
@@ -440,7 +796,7 @@ impl Repository {
     /// unsaved changes.
     /// 
     /// For a safer alternative, use [`Repository::replace_cwd_with_snapshot`].
-    pub fn replace_cwd_with_snapshot_unchecked(&self, snapshot: &Snapshot) -> Result<()> {
+    pub fn replace_cwd_with_snapshot_unchecked(&mut self, snapshot: &Snapshot) -> Result<()> {
         let current = self.fetch_current_snapshot()?;
 
         // Delete paths that are in this snapshot but not the destination snapshot.
@@ -463,6 +819,12 @@ impl Repository {
                 "failed to write to path: {}", path.display()
             );
         }
+
+        self.staged_files = snapshot
+            .files
+            .keys()
+            .cloned()
+            .collect();
 
         Ok(())
     }

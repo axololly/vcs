@@ -1,9 +1,16 @@
-pub mod core;
-pub use core::*;
+pub mod action;
+pub mod content;
+pub mod change;
+pub mod graph;
+pub mod hash;
+pub mod key;
+pub mod repository;
+pub mod snapshot;
+pub mod stash;
+pub mod trash;
+pub mod user;
 
 pub mod utils;
 pub use utils::*;
 
 mod macros;
-
-mod io;

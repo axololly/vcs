@@ -2,9 +2,9 @@ use eyre::Result;
 use serde::{Deserialize, Serialize};
 use similar::TextDiff;
 
-use crate::{core::{hash::ObjectHash, repository::Repository}, unwrap, utils::{decompress_data, hash_raw_bytes}};
+use crate::{hash::ObjectHash, repository::Repository, unwrap, utils::{decompress_data, hash_raw_bytes}};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Delta {
     pub original: ObjectHash,
     
@@ -34,31 +34,9 @@ impl Delta {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-pub enum RawContent {
-    Literal(#[serde(with = "serde_bytes")] Vec<u8>),
-    Delta(Delta)
-}
-
-impl RawContent {
-    pub fn into_content(self) -> Result<Content> {
-        Ok(match self {
-            Self::Literal(bytes) => {
-                let decompressed = decompress_data(bytes)?;
-                
-                let string = String::from_utf8(decompressed)?;
-                
-                Content::Literal(string)
-            },
-
-            Self::Delta(delta) => Content::Delta(delta)
-        })
-    }
-}
-
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
 pub enum Content {
-    Literal(String),
+    Literal(#[serde(with = "serde_bytes")] Vec<u8>),
     Delta(Delta)
 }
 
@@ -66,7 +44,11 @@ impl Content {
     /// Obtain a `String` from [`Content`] by potentially resolving deltas.
     pub fn resolve(self, repo: &Repository) -> Result<String> {
         Ok(match self {
-            Self::Literal(string) => string,
+            Self::Literal(compressed) => {
+                let decompressed = decompress_data(compressed)?;
+                
+                String::from_utf8(decompressed)?
+            },
 
             Self::Delta(delta) => {
                 let original = repo.fetch_string_content(delta.original)?;

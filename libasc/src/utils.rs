@@ -1,13 +1,12 @@
-use crate::{core::hash::ObjectHash, unwrap};
+use crate::{hash::ObjectHash, hash::RawObjectHash, unwrap};
 
 use std::{fmt, fs::{self, File}, io::Write, path::{Path, PathBuf}, process::Command};
 
 use eyre::{Context, Result, bail, eyre};
 use glob::glob;
 use miniz_oxide::{deflate::compress_to_vec, inflate::decompress_to_vec};
-use regex::Regex;
 use serde::Serialize;
-use sha1::{Digest, Sha1};
+use sha2::{Digest, Sha256};
 
 /// Expand a path with wildcards into all possible matches.
 /// 
@@ -43,11 +42,11 @@ pub fn decompress_data(input: impl AsRef<[u8]>) -> Result<Vec<u8>> {
 
 /// Compute a SHA-1 hash from the given bytes.
 pub fn hash_raw_bytes(input: impl AsRef<[u8]>) -> ObjectHash {
-    let mut hasher = Sha1::new();
+    let mut hasher = Sha256::new();
 
     hasher.update(input);
 
-    let raw_hash: [u8; 20] = hasher.finalize().into();
+    let raw_hash: RawObjectHash = hasher.finalize().into();
 
     raw_hash.into()
 }
@@ -66,7 +65,7 @@ pub fn remove_path(path: impl AsRef<Path>, root: impl AsRef<Path>) -> Result<()>
     loop {
         let path = path.as_ref().parent().unwrap();
 
-        if path == root.as_ref() {
+        if path == root.as_ref() || path == "" {
             break Ok(());
         }
         
@@ -169,12 +168,12 @@ pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path, templ
         "cannot read content of: {}", snapshot_message_path.display()
     );
 
-    // Extracts only the commit message, stripping whitespace and commented-out lines.
-    let re = Regex::new(r"^\s*?(.*?)\s*?$(\n(\n*?#.*?$)*)?").unwrap();
+    let cleaned: String = content
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect();
 
-    let cleaned = re.captures(&content).unwrap();
-
-    Ok(cleaned[0].to_string())
+    Ok(cleaned)
 }
 
 pub fn save_as_msgpack<T: Serialize>(data: &T, path: impl AsRef<Path>) -> Result<()> {

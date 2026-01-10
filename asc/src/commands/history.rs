@@ -1,4 +1,5 @@
 use clap::{Args as A, ValueEnum};
+use color_eyre::owo_colors::OwoColorize;
 use eyre::{Result, bail};
 
 use libasc::{repository::Repository, snapshot::Snapshot, unwrap};
@@ -80,18 +81,47 @@ pub fn parse(args: Args) -> Result<()> {
     for snapshot in snapshots_to_show {
         match args.format.unwrap_or(Format::Medium) {
             Format::Short => {
-                println!("{}", snapshot.hash);
+                let line = format!("{}", snapshot.hash);
+
+                if repo.current_hash == snapshot.hash {
+                    println!("{}", line.green());
+                }
+                else {
+                    println!("{line}");
+                }
             }
             
             Format::Medium => {
-                println!("[{}]  {} (user: {})", snapshot.hash, first_line_only(&snapshot.message), snapshot.author);
+                let line = format!(
+                    "[{}]  {} (user: {})",
+                    snapshot.hash,
+                    first_line_only(snapshot.message()),
+                    snapshot.author()
+                );
+
+                if repo.current_hash == snapshot.hash {
+                    println!("{}", line.green());
+                }
+                else {
+                    println!("{line}");
+                }
             }
 
             Format::Long => {
-                println!("Hash: {:?}", snapshot.hash);
-                println!("Message: {}", first_line_only(&snapshot.message));
-                println!("Author: {}", snapshot.author);
-                println!("Timestamp: {}", snapshot.timestamp);
+                // TODO: if the attributes were changed, maybe mention that here?
+                
+                let line = format!("Hash: {:?}", snapshot.hash);
+
+                if repo.current_hash == snapshot.hash {
+                    println!("{}", line.green());
+                }
+                else {
+                    println!("{line}");
+                }
+
+                println!("Message: {}", first_line_only(snapshot.message()));
+                println!("Author: {}", snapshot.author());
+                println!("Timestamp: {}", snapshot.timestamp());
                 println!();
             }
         }

@@ -1,9 +1,9 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 use clap::Args as A;
 use eyre::{Result, bail};
 
-use libasc::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, unwrap};
+use libasc::{action::Action, repository::Repository};
 
 #[derive(A)]
 pub struct Args {
@@ -11,55 +11,49 @@ pub struct Args {
     snapshot: String,
 
     /// The new parent for the snapshot.
-    new_parent: String,
-}
-
-pub fn check_parenthood(history: &Graph, child: ObjectHash, parent: ObjectHash) -> bool {
-    let mut queue = VecDeque::new();
-
-    queue.push_back(child);
-
-    while let Some(next) = queue.pop_front() {
-        if next == parent {
-            return true;
-        }
-
-        queue.extend(history.get_parents(next).unwrap());
-    }
-
-    false
+    new_parents: Vec<String>,
 }
 
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    let current = repo.normalise_version(&args.snapshot)?;
+    let to_rebase = repo.normalise_version(&args.snapshot)?;
 
-    if current.is_root() {
+    if to_rebase.is_root() {
         bail!("cannot rebase the root snapshot.");
     }
 
-    let new_parent = repo.normalise_version(&args.new_parent)?;
+    let new_parents = {
+        let mut v = HashSet::new();
+        
+        for parent in args.new_parents {
+            let new_parent = repo.normalise_version(&parent)?;
 
-    if current == new_parent {
-        bail!("the child and new parent cannot be the same commit.");
+            if to_rebase == new_parent {
+                bail!("cannot rebase commit on itself.");
+            }
+
+            if repo.history.is_descendant(new_parent, to_rebase)? {
+                bail!("cannot rebase {to_rebase} onto {new_parent} because {new_parent} is a direct child of {new_parent}.");
+            }
+
+            v.insert(new_parent);
+        }
+
+        v
+    };
+    
+    let previous_parents = repo.history.remove(to_rebase).unwrap();
+
+    for &parent in &new_parents {
+        repo.history.insert(to_rebase, parent)?;
     }
-
-    // You can't rebase a snapshot onto one of its children, so that needs to be checked.
-    if check_parenthood(&repo.history, new_parent, current) {
-        bail!("cannot rebase {current} onto {new_parent} because {current} is a direct child of {new_parent}");
-    }
-
-    let previous_parents = unwrap!(
-        repo.history.upsert(current, HashSet::from([new_parent])),
-        "snapshot {current} does not exist in the repository."
-    );
 
     repo.action_history.push(
         Action::RebaseSnapshot {
-            hash: current,
+            hash: to_rebase,
             from: previous_parents.iter().cloned().collect(),
-            to: vec![new_parent]
+            to: new_parents.iter().cloned().collect()
         }
     );
 

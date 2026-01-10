@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::core::hash::ObjectHash;
+use crate::hash::ObjectHash;
 
 /// Represents a snapshot independent of the history.
 /// 

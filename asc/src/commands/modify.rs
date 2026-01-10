@@ -1,7 +1,8 @@
+use chrono::{DateTime, Utc};
 use clap::Args as A;
 use eyre::{Result, bail};
 
-use libasc::{action::Action, repository::Repository, snapshot::Snapshot};
+use libasc::{repository::Repository, snapshot::{SignedSnapshotEdit, SnapshotEdit}, unwrap};
 
 #[derive(A)]
 pub struct Args {
@@ -22,55 +23,67 @@ pub struct Args {
 }
 
 pub fn parse(args: Args) -> Result<()> {
-    let mut repo = Repository::load()?;
+    let repo = Repository::load()?;
+
+    let editing_user = unwrap!(
+        repo.current_user(),
+        "no valid user is set for this repository."
+    );
+
+    let editing_user_key = editing_user.private_key.unwrap();
 
     let version = repo.normalise_hash(&args.hash)?;
 
-    let mut original = repo.fetch_snapshot(version)?;
-    let orig_clone = original.clone();
+    let mut snapshot = repo.fetch_snapshot(version)?;
 
-    let author = args.author.unwrap_or(original.author);
+    let mut edits = vec![];
 
-    let message = args.message.unwrap_or(original.message);
+    if let Some(author) = args.author {
+        let new_owner = unwrap!(
+            repo.users.get_user(&author),
+            "no user by the name of {author:?} in the repository."
+        );
 
-    if message.is_empty() {
-        bail!("messages for snapshots cannot be empty.");
+        let mut private_key = unwrap!(
+            new_owner.private_key,
+            "cannot rename author of commit to user {:?} (no private key)", new_owner.name
+        );
+
+        let signature = private_key.sign(snapshot.hash.as_bytes());
+
+        edits.push(SnapshotEdit::ReplaceAuthor(author, signature));
     }
 
-    let timestamp = args.datetime
-        .map(|s| s.parse())
-        .unwrap_or(Ok(original.timestamp))?;
-
-    // Root is the only one where the hash is not recomputed
-    if version.is_root() {
-        original.author = author;
-        original.message = message;
-        original.timestamp = timestamp;
-
-        repo.save_snapshot(&original)?;
-
-        return Ok(());
-    }
-
-    let snapshot = Snapshot::from_parts(author, message, timestamp, original.files);
-
-    if original.hash == snapshot.hash {
-        bail!("no changes were made to the commit (hashes were equal).");
-    }
-
-    repo.save_snapshot(&snapshot)?;
-
-    repo.history.rename(original.hash, snapshot.hash)?;
-
-    println!("Snapshot hash changed: {} -> {}", original.hash, snapshot.hash);
-
-    repo.action_history.push(
-        Action::ModifySnapshot {
-            hash: original.hash,
-            before: orig_clone,
-            after: snapshot
+    if let Some(message) = args.message {
+        if message.is_empty() {
+            bail!("messages for snapshots cannot be empty.");
         }
-    );
+
+        edits.push(SnapshotEdit::ReplaceMessage(message));
+    }
+
+    if let Some(datetime) = args.datetime {
+        let timestamp: DateTime<Utc> = unwrap!(
+            datetime.parse(),
+            "failed to parse raw datetime {datetime:?}"
+        );
+        
+        edits.push(SnapshotEdit::ReplaceTimestamp(timestamp));
+    }
+
+    if edits.is_empty() {
+        bail!("no modifications were given for snapshot.");
+    }
+
+    let changes = edits.len();
+
+    let signed_edit = SignedSnapshotEdit::new(edits, editing_user_key);
+
+    snapshot.edits.push(signed_edit);
+
+    println!("Modified snapshot {:?} ({} changes)", snapshot.hash, changes);
+
+    repo.save_snapshot(snapshot)?;
 
     repo.save()?;
 

@@ -1,9 +1,9 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{collections::{HashMap, HashSet, VecDeque}, io::Write, path::Path};
 
 use eyre::{Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::core::hash::ObjectHash;
+use crate::{hash::ObjectHash, create_file, open_file};
 
 type Parents = HashSet<ObjectHash>;
 
@@ -11,7 +11,7 @@ type Parents = HashSet<ObjectHash>;
 /// store snapshots and their relationships.
 /// 
 /// This is implemented with a [`HashMap`] of nodes to parents.
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct Graph {
     links: HashMap<ObjectHash, Parents>
 }
@@ -28,17 +28,21 @@ impl Graph {
     
     /// Create an empty [`Graph`].
     pub fn empty() -> Graph {
-        Graph { links: HashMap::new() }
-    }
-
-    fn get_mut(&mut self, hash: ObjectHash) -> &mut Parents {
-        self.links.entry(hash).or_default()
+        Graph::default()
     }
 
     /// Connect a hash to a parent, either adding it to the DAG,
     /// or updating its state within the DAG.
-    pub fn insert(&mut self, hash: ObjectHash, parent: ObjectHash) {
-        self.get_mut(hash).insert(parent);
+    pub fn insert(&mut self, hash: ObjectHash, parent: ObjectHash) -> Result<()> {
+        if !self.contains(parent) {
+            bail!("parent hash {parent} does not exist in the graph.")
+        }
+
+        let parents = self.links.entry(hash).or_default();
+        
+        parents.insert(parent);
+
+        Ok(())
     }
 
     /// Insert a hash with no parents.
@@ -71,12 +75,12 @@ impl Graph {
         self.links.get(&hash)
     }
 
-    /// Return an iterator over all the hashes and their parents in the DAG.
-    pub fn iter(&self) -> impl Iterator<Item = (&ObjectHash, &Parents)> {
-        self.links.iter()
+    /// Return an iterator over all the hashes and their parents in the DAG in no particular order.
+    pub fn iter(&self) -> impl Iterator<Item = (ObjectHash, &Parents)> {
+        self.iter_hashes().map(|hash| (hash, self.get_parents(hash).unwrap()))
     }
 
-    /// Return an iterator over all the hashes in the DAG.
+    /// Return an iterator over all the hashes in the DAG in no particular order.
     pub fn iter_hashes(&self) -> impl Iterator<Item = ObjectHash> {
         self.links.keys().cloned()
     }
@@ -87,45 +91,40 @@ impl Graph {
     }
 
     /// Check if `a` is a descendant of `b` in the graph.
-    pub fn is_descendant(&self, a: ObjectHash, b: ObjectHash) -> bool {
+    pub fn is_descendant(&self, a: ObjectHash, b: ObjectHash) -> Result<bool> {
         let mut queue = VecDeque::new();
 
         queue.push_back(a);
 
         while let Some(next) = queue.pop_front() {
             if next == b {
-                return true;
+                return Ok(true);
             }
 
             queue.extend(self.get_parents(next).unwrap().iter());
         }
 
-        false
+        Ok(false)
     }
 
-    /// Replace a hash in the tree with another hash,
-    /// provided the hash does not already exist in the graph.
-    pub fn rename(&mut self, old: ObjectHash, new: ObjectHash) -> Result<usize> {
-        if self.links.contains_key(&new) {
-            bail!("hash {new} already exists in the graph.");
-        }
-        
-        let Some(parents) = self.links.remove(&old) else {
-            bail!("hash {old} does not exist in the graph.")
-        };
+    /// Get the number of nodes in the DAG.
+    pub fn size(&self) -> usize {
+        self.links.len()
+    }
 
-        self.links.insert(new, parents);
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Graph> {
+        let fp = open_file(path)?;
 
-        let mut modified = 0;
+        Ok(rmp_serde::from_read(fp)?)
+    }
 
-        for parents in self.links.values_mut() {
-            if parents.remove(&old) {
-                modified += 1;
-                
-                parents.insert(new);
-            }
-        }
+    pub fn to_file(&self, path: impl AsRef<Path>) -> Result<()> {
+        let mut fp = create_file(path)?;
 
-        Ok(modified)
+        let data = rmp_serde::to_vec(self)?;
+
+        fp.write_all(&data)?;
+
+        Ok(())
     }
 }

@@ -1,10 +1,10 @@
-use std::time::Duration;
-
 use clap::Subcommand;
+use color_eyre::owo_colors::OwoColorize;
 use eyre::{bail, Result};
 
-use libasc::{repository::Repository, user::{self, Users}};
+use libasc::{repository::Repository, unwrap, user};
 
+// TODO: include more subcommands for things like closing and reopening user accounts
 #[derive(Subcommand)]
 pub enum Subcommands {
     /// Create a new user in the repository.
@@ -14,17 +14,6 @@ pub enum Subcommands {
     Create {
         username: String,
         permissions: Option<String>
-    },
-
-    /// Update a user's password in the repository.
-    Update {
-        username: String
-    },
-
-    /// Delete a user from the repository.
-    #[command(visible_aliases = ["remove", "rm"])]
-    Delete {
-        username: String
     },
 
     /// List all users in the repository.
@@ -40,58 +29,26 @@ pub enum Subcommands {
     Permissions {
         username: String,
         permissions: Option<String>
+    },
+
+    /// List information about the given user.
+    Info {
+        username: Option<String>,
+
+        /// Whether or not to show the private key.
+        #[arg(long)]
+        show_private_key: bool
+    },
+
+    /// Close a user account, making it unusable for authentication.
+    Close {
+        username: String
+    },
+
+    /// Reopen a user account, making it usable for authentication.
+    Reopen {
+        username: String
     }
-}
-
-pub fn read_stdin_hidden(prompt: &str) -> Result<String> {
-    use manyterm::{event::{Event, read}, sys, types::Key, print};
-
-    sys::init()?;
-
-    sys::enable_raw_mode()?;
-
-    print!("{prompt}");
-
-    let mut password = String::new();
-
-    loop {
-        let Some(Event::Key(key)) = read(Duration::from_secs(3)) else { continue };
-
-        if key.modifiers.ctrl || key.modifiers.alt {
-            continue;
-        }
-
-        match key.key {
-            Key::Char(ch) => {
-                password.push(ch);
-            },
-
-            Key::Backspace => {
-                password.pop();
-            }
-
-            Key::Enter => break,
-
-            _ => continue
-        }
-    }
-
-    sys::disable_raw_mode()?;
-
-    Ok(password)
-}
-
-fn create_user(username: &str, users: &mut Users) -> Result<()> {
-    let password = read_stdin_hidden("Enter password: ")?;
-    let password2 = read_stdin_hidden("Repeat password: ")?;
-
-    if password != password2 {
-        println!("Passwords did not match.");
-
-        return Ok(());
-    }
-
-    users.create_user(username, &password)
 }
 
 pub fn parse(subcommand: Subcommands) -> Result<()> {
@@ -110,32 +67,11 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 None => user::Permissions::empty()
             };
 
-            create_user(&username, &mut repo.users)?;
-
-            let user = repo.users.get_user_mut(&username).unwrap();
+            let user = repo.users.create_user(username)?;
 
             user.permissions = perms;
 
-            println!("Successfully created user {username:?}.");
-        },
-
-        Update { username } => {
-            if repo.users.get_user(&username).is_none() {
-                bail!("the user {username:?} does not exist in the repository.");
-            }
-
-            create_user(&username, &mut repo.users)?;
-
-            println!("Updated password of user {username:?}.");
-        },
-
-        Delete { username } => {
-            if repo.users.remove_user(&username).is_some() {
-                println!("Removed {username:?} from the repository.");
-            }
-            else {
-                bail!("the user {username:?} does not exist in the repository.");
-            }
+            println!("Successfully created user {:?}.", user.name);
         },
 
         List => {
@@ -148,23 +84,104 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             println!("Users:");
 
             for user in repo.users.iter() {
-                println!(" * {}", user.name);
+                let mut line = format!(" * {}", user.name);
+
+                if let Some(current_user) = repo.current_user() && current_user.name == user.name {
+                    line = format!("{}", line.green());
+                }
+
+                println!("{line}");
             }
         },
 
-        Current { username } => {
-            let Some(name) = username else {
-                println!("{}", repo.current_user().name);
-
-                return Ok(());
+        Info { username, show_private_key } => {
+            let user = if let Some(name) = username {
+                unwrap!(
+                    repo.users.get_user(&name),
+                    "no user with name {name:?} in this repository."
+                )
+            }
+            else {
+                unwrap!(
+                    repo.current_user(),
+                    "no valid user set on this repository."
+                )
             };
 
+            let name = if user.closed {
+                format!("{} (closed)", user.name)
+            }
+            else {
+                user.name.clone()
+            };
+
+            println!("Name: {name}");
+            println!("Permissions: {}", user.permissions);
+            println!("Public key: {}", user.public_key);
+            
+            if show_private_key {
+                println!("Private key: {}", match user.private_key {
+                    Some(key) => format!("{key}"),
+                    None => "none".to_string()
+                });
+            }
+        },
+
+        Close { username } => {
+            let user = unwrap!(
+                repo.users.get_user_mut(&username),
+                "no user with name {username:?} in this repository."
+            );
+
+            if user.closed {
+                println!("User account is already closed.");
+            }
+            else {
+                user.closed = true;
+
+                println!("Closed user account {username:?}");
+            }
+        },
+
+        Reopen { username } => {
+            let user = unwrap!(
+                repo.users.get_user_mut(&username),
+                "no user with name {username:?} in this repository."
+            );
+
+            if user.closed {
+                user.closed = false;
+
+                println!("Reopened user account {username:?}");
+            }
+            else {
+                println!("User account is already open.");
+            }
+        },
+
+        Current { username: Some(name) } => {
             repo.set_current_user(&name)?;
+
+            println!("Changed user to: {name:?}");
+        },
+        
+        Current { username: None } => {
+            if let Some(user) = repo.current_user() {
+                println!("{}", user.name);
+            }
+            else {
+                bail!("no valid user is set in this repository.");
+            }
         },
 
         Permissions { username, permissions } => {
             let Some(perms) = permissions else {
-                println!("{}", repo.current_user().permissions.to_string_pretty());
+                if let Some(user) = repo.current_user() {
+                    println!("{}", user.permissions);
+                }
+                else {
+                    bail!("no valid user is set in this repository.");
+                }
 
                 return Ok(());
             };
@@ -181,8 +198,8 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
 
             println!(
                 "Changed permissions of {username:?}: {} -> {}",
-                original_perms.to_string_pretty(),
-                new_perms.to_string_pretty()
+                original_perms,
+                new_perms
             );
         }
     }

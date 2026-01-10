@@ -27,8 +27,6 @@ pub enum Subcommands {
     }
 }
 
-// type Graph = HashMap<ObjectHash, HashSet<ObjectHash>>;
-
 fn count_subnodes(graph: &Graph, node: ObjectHash) -> usize {
     graph
         .get_parents(node)
@@ -54,9 +52,9 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
     let inverse_links = {
         let mut graph = Graph::empty();
 
-        for (&hash, parents) in repo.history.iter() {
+        for (hash, parents) in repo.history.iter() {
             for &parent in parents {
-                graph.insert(hash, parent);
+                graph.insert(hash, parent)?;
             }
         }
 
@@ -90,6 +88,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 .filter_map(|(name, &tag_hash)| {
                     repo.history
                         .is_descendant(tag_hash, hash)
+                        .unwrap()
                         .then_some((name.as_str(), tag_hash))
                 })
                 .collect();
@@ -111,7 +110,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
 
             repo.trash.add(hash);
 
-            if repo.history.is_descendant(repo.current_hash, hash) {
+            if repo.history.is_descendant(repo.current_hash, hash)? {
                 if repo.has_unsaved_changes()? {
                     bail!("by trashing {hash}, the HEAD at {} would also be trashed.\n\nNormally, this would move the HEAD back to one of the parents of {hash} to move the HEAD out of the trash. However, there are unsaved changes which would be lost.\n\nTo save these, stash them or introduce a new commit to the repository.", repo.current_hash)
                 }

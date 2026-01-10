@@ -2,7 +2,7 @@ use derive_more::Display;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{core::{hash::ObjectHash, snapshot::Snapshot}, utils::DisplaySeq};
+use crate::{hash::ObjectHash, utils::DisplaySeq};
 
 /// Represents an action made on the repository.
 /// 
@@ -10,12 +10,6 @@ use crate::{core::{hash::ObjectHash, snapshot::Snapshot}, utils::DisplaySeq};
 #[derive(Clone, Debug, Display, Deserialize, Serialize, PartialEq)]
 pub enum Action {
     // Snapshots
-    #[display("modified snapshot {hash}")]
-    ModifySnapshot {
-        hash: ObjectHash,
-        before: Snapshot,
-        after: Snapshot
-    },
     #[display("rebased snapshot {hash} from {:?} to {:?}", DisplaySeq(from), DisplaySeq(to))]
     RebaseSnapshot {
         hash: ObjectHash,

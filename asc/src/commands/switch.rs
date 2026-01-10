@@ -29,7 +29,9 @@ pub fn parse(args: Args) -> Result<()> {
         .map(String::from)
         .unwrap_or(format!("{}", new_hash));
 
-    repo.replace_cwd_with_snapshot(&repo.fetch_snapshot(new_hash)?)?;
+    let new_state = repo.fetch_snapshot(new_hash)?;
+
+    repo.replace_cwd_with_snapshot(&new_state)?;
 
     repo.action_history.push(
         Action::SwitchVersion {

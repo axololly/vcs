@@ -1,11 +1,11 @@
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
-use crate::core::hash::ObjectHash;
+use crate::hash::ObjectHash;
 
 // For documentation purposes.
 #[allow(unused_imports)]
-use crate::core::graph::Graph;
+use crate::graph::Graph;
 
 /// For _how_ an [`ObjectHash`] is included in the trash.
 pub enum TrashStatus {
