@@ -24,6 +24,7 @@ Categories are as follows:
 - Added user accounts to the repository
 - Added project codes to repositories so you can't sync to unrelated repositories
 - Added storing edits on snapshots separate to the original snapshot data
+- Added support for tilde paths when opening/loading a repository
 
 ### Changed
 
@@ -41,6 +42,7 @@ Categories are as follows:
 - User accounts now generate a public-private key pair instead of using a password
 - Merged IO bindings with the rest of the code in `libasc`
 - `asc rebase` now accepts multiple parents
+- User accounts are stored in a hashmap of public key to `User` object for faster lookups
 
 ### Fixed
 
@@ -49,6 +51,8 @@ Categories are as follows:
 - `Repository::save_string_content` previously saved it as a `&str`, but `Repository::fetch_string_content` would have loaded it as a `Content`
 - `Repository::replace_cwd_with_snapshot` did not update `Repository::staged_files`, causing errors when saving due to missing content
 - `asc branch` didn't update `Repository::action_history`
+- Fixed a really really unsound use of `transmute`
+- Fixed display of `asc log`
 
 
 ## v0.6.0

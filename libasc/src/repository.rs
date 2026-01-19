@@ -3,6 +3,7 @@ use std::{cell::RefCell, collections::{BTreeMap, HashMap, HashSet}, env::current
 use crate::{change::FileChange, compress_data, content::{Content, Delta}, action::{Action, ActionHistory}, graph::Graph, hash::ObjectHash, snapshot::Snapshot, stash::Stash, trash::{Entry, Trash, TrashStatus}, user::{User, Users}, create_file, hash_raw_bytes, open_file, remove_path, save_as_msgpack, snapshot::SignedSnapshot, unwrap, user::Permissions};
 
 use chrono::Utc;
+use expand_tilde::ExpandTilde;
 use eyre::{Result, bail};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use serde::{Deserialize, Serialize};
@@ -465,7 +466,14 @@ impl Repository {
     /// 
     /// This does **NOT** search upwards for a valid directory, and will simply fail.
     pub fn load_from(root_dir: impl AsRef<Path>) -> Result<Repository> {
-        let root_dir = root_dir.as_ref();
+        let root_dir = {
+            let base = root_dir.as_ref().expand_tilde()?;
+            
+            unwrap!(
+                base.canonicalize(),
+                "could not canonicalise path: {}", base.display()
+            )
+        };
 
         let content_dir = root_dir.join(".asc");
 
@@ -491,8 +499,8 @@ impl Repository {
         let repo = Repository {
             project_name: info.project_name,
             project_code: info.project_code,
-            ignore_matcher: get_ignore_matcher(root_dir)?,
-            root_dir: root_dir.to_path_buf(),
+            ignore_matcher: get_ignore_matcher(&root_dir)?,
+            root_dir,
             action_history,
             history,
             branches: info.branches,
@@ -685,7 +693,7 @@ impl Repository {
         );
 
         let private_key = unwrap!(
-            user.private_key,
+            user.private_key.clone(),
             "cannot save a snapshot under user {:?} (no private key)",
             user.name
         );

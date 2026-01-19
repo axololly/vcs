@@ -24,7 +24,7 @@ pub fn parse(args: Args) -> Result<()> {
         actions = actions.rchunks(limit).next().unwrap();
     }
 
-    if actions.is_empty() {
+    if actions.is_empty() && redoable.is_empty() {
         println!("No actions have been performed on this repository.");
 
         return Ok(());
@@ -38,8 +38,6 @@ pub fn parse(args: Args) -> Result<()> {
     }
 
     println!("Actions performed:");
-
-    // TODO: Show redoable actions as greyed out
 
     if args.all {
         for action in redoable {

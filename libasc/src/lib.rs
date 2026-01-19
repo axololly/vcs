@@ -1,6 +1,6 @@
 pub mod action;
-pub mod content;
 pub mod change;
+pub mod content;
 pub mod graph;
 pub mod hash;
 pub mod key;

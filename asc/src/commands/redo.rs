@@ -26,7 +26,7 @@ pub fn parse(args: Args) -> Result<()> {
 
     for _ in 0..count {
         if let Some(action) = repo.redo_action()? {
-            println!("redid: {action}");
+            println!(" * {action}");
             
             done += 1;
         }

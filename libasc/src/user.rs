@@ -16,12 +16,8 @@ bitflags! {
     }
 }
 
-static LETTER_TO_PERMISSION: LazyLock<HashMap<char, Permissions>> = LazyLock::new(|| {
-    HashMap::from([
-        ('c', Permissions::CAN_PULL),
-        ('p', Permissions::CAN_PUSH)
-    ])
-});
+static LETTER_TO_PERMISSION: LazyLock<HashMap<char, Permissions>> =
+    LazyLock::new(|| HashMap::from([('c', Permissions::CAN_PULL), ('p', Permissions::CAN_PUSH)]));
 
 impl Permissions {
     pub fn can_push(&self) -> bool {
@@ -35,10 +31,8 @@ impl Permissions {
 
 impl Display for Permissions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inverted: HashMap<Permissions, char> = LETTER_TO_PERMISSION
-            .iter()
-            .map(|(&k, &v)| (v, k))
-            .collect();
+        let inverted: HashMap<Permissions, char> =
+            LETTER_TO_PERMISSION.iter().map(|(&k, &v)| (v, k)).collect();
 
         for p in *self {
             write!(f, "{}", inverted[&p])?;
@@ -57,7 +51,7 @@ pub enum Error {
     UsernameAlreadyExists(String),
 
     #[display("cannot have an account with an empty username")]
-    EmptyUsernameDisallowed
+    EmptyUsernameDisallowed,
 }
 
 impl std::error::Error for Error {}
@@ -76,7 +70,7 @@ impl TryFrom<&str> for Permissions {
 
             perms |= perm;
         }
-        
+
         Ok(perms)
     }
 }
@@ -96,27 +90,20 @@ pub struct User {
     pub permissions: Permissions,
     pub public_key: PublicKey,
     pub private_key: Option<PrivateKey>,
-    pub closed: bool
+    pub closed: bool,
 }
 
 impl User {
     /// Create a new [`User`] with empty [`Permissions`].
-    /// 
+    ///
     /// To create a [`User`] with specified [`Permissions`],
     /// use [`User::with_permissions`].
     pub fn new(username: String) -> User {
-        User::with_permissions(
-            username,
-            Permissions::empty()
-        )
+        User::with_permissions(username, Permissions::empty())
     }
 
     /// Create a new [`User`] with a given set of [`Permissions`].
-    pub fn with_permissions(
-        username: String,
-        permissions: Permissions
-    ) -> User
-    {
+    pub fn with_permissions(username: String, permissions: Permissions) -> User {
         let private_key = PrivateKey::new();
 
         User {
@@ -124,7 +111,7 @@ impl User {
             permissions,
             public_key: private_key.public_key(),
             private_key: Some(private_key),
-            closed: false
+            closed: false,
         }
     }
 }
@@ -132,7 +119,7 @@ impl User {
 /// A collection of users for a repository.
 #[derive(Default, Deserialize, Serialize)]
 pub struct Users {
-    inner: Vec<User>
+    inner: HashMap<PublicKey, User>,
 }
 
 impl Users {
@@ -142,15 +129,11 @@ impl Users {
     }
 
     /// Create a new [`User`] for the repository.
-    /// 
+    ///
     /// These get given empty permissions. To change that user's permissions,
     /// use [`Users::get_user_mut`] and update [`User::permissions`], or insert
     /// the permissions with [`Users::create_user_with_permissions`]
-    pub fn create_user(
-        &mut self,
-        username: String
-    ) -> std::result::Result<&mut User, Error>
-    {
+    pub fn create_user(&mut self, username: String) -> std::result::Result<&mut User, Error> {
         if self.get_user(&username).is_some() {
             return Err(Error::UsernameAlreadyExists(username.to_string()));
         }
@@ -161,18 +144,19 @@ impl Users {
 
         let user = User::new(username);
 
-        self.inner.push(user);
+        let key = user.public_key;
 
-        Ok(self.inner.last_mut().unwrap())
+        self.inner.insert(key, user);
+
+        Ok(self.inner.get_mut(&key).unwrap())
     }
 
     /// Create a new [`User`] for the repository with a given set of permissions.
     pub fn create_user_with_permissions(
         &mut self,
         username: String,
-        permissions: Permissions
-    ) -> Result<&mut User>
-    {
+        permissions: Permissions,
+    ) -> Result<&mut User> {
         let user = self.create_user(username)?;
 
         user.permissions = permissions;
@@ -187,44 +171,36 @@ impl Users {
 
     /// Get a [`User`] from the repository.
     pub fn get_user(&self, username: &str) -> Option<&User> {
-        self.inner
-            .iter()
-            .find(|u| u.name == username)
+        self.inner.values().find(|u| u.name == username)
     }
 
     /// Get a [`User`] by searching for a matching public key instead of a username.
     pub fn get_user_by_pub_key(&self, public_key: PublicKey) -> Option<&User> {
-        self.inner
-            .iter()
-            .find(|u| u.public_key == public_key)
+        self.inner.get(&public_key)
     }
 
     /// Get a mutable [`User`] from the repository.
     pub fn get_user_mut(&mut self, username: &str) -> Option<&mut User> {
-        self.inner
-            .iter_mut()
-            .find(|u| u.name == username)
+        self.inner.values_mut().find(|u| u.name == username)
     }
 
     /// Get a [`User`] by searching for a matching public key instead of a username.
     pub fn get_user_mut_by_pub_key(&mut self, public_key: PublicKey) -> Option<&mut User> {
-        self.inner
-            .iter_mut()
-            .find(|u| u.public_key == public_key)
+        self.inner.get_mut(&public_key)
     }
 
     /// Remove and return a [`User`] from the repository.
     pub fn remove_user(&mut self, username: &str) -> Option<User> {
-        let index = self.inner
-            .iter()
-            .position(|u| u.name == username)?;
+        let user = self.get_user(username)?;
 
-        Some(self.inner.swap_remove(index))
+        let key = user.public_key;
+
+        self.inner.remove(&key)
     }
 
     /// Iterature through all [`User`]s in the repository.
     pub fn iter(&self) -> impl Iterator<Item = &User> {
-        self.inner.iter()
+        self.inner.values()
     }
 
     /// Check if no users are in the repository.
