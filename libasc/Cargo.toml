@@ -29,9 +29,6 @@ tokio = { version = "1.49.0", features = ["io-std"] }
 unicode-width = "0.2.2"
 whoami = "1.6.1"
 
-[dependencies.manyterm]
-git = "https://github.com/axololly/manyterm"
-
 [dependencies.xdelta3]
 git = "https://github.com/axololly/xdelta3-rs"
 

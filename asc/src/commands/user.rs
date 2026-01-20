@@ -120,7 +120,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             println!("Public key: {}", user.public_key);
             
             if show_private_key {
-                println!("Private key: {}", match user.private_key {
+                println!("Private key: {}", match &user.private_key {
                     Some(key) => format!("{key}"),
                     None => "none".to_string()
                 });

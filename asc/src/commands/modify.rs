@@ -30,7 +30,7 @@ pub fn parse(args: Args) -> Result<()> {
         "no valid user is set for this repository."
     );
 
-    let editing_user_key = editing_user.private_key.unwrap();
+    let editing_user_key = editing_user.private_key.clone().unwrap();
 
     let version = repo.normalise_hash(&args.hash)?;
 
@@ -45,7 +45,7 @@ pub fn parse(args: Args) -> Result<()> {
         );
 
         let mut private_key = unwrap!(
-            new_owner.private_key,
+            new_owner.private_key.clone(),
             "cannot rename author of commit to user {:?} (no private key)", new_owner.name
         );
 

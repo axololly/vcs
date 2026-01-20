@@ -2,6 +2,6 @@
 resolver = "2"
 members = [
     "libasc",
-    "libasc-remote",
-    # "asc"
+    # "libasc-remote",
+    "asc"
 ]

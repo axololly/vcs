@@ -12,7 +12,6 @@ color-eyre = "0.6.5"
 eyre = "0.6.12"
 ignore = "0.4.25"
 libasc = { path = "../libasc" }
-manyterm = { git = "https://github.com/axololly/manyterm" }
 sha1 = "0.10.6"
 similar = "2.7.0"
 threeway_merge = "0.1.10"

@@ -5,8 +5,9 @@ use clap::Args as A;
 use eyre::{Result, bail};
 use unicode_width::UnicodeWidthStr;
 
-use libasc::{hash::ObjectHash, repository::Repository};
+use libasc::{hash::ObjectHash, repository::Repository, unwrap};
 
+// TODO: maybe write your own version?
 use blame_rs::{BlameRevision, blame};
 
 #[derive(A)]
@@ -60,12 +61,11 @@ pub fn parse(args: Args) -> Result<()> {
             content: repo.fetch_string_content(content_hash)?.resolve(&repo)?
         });
 
-        let parents = repo.history
-            .get_parents(next)
-            .unwrap()
-            .iter()
-            .cloned();
-
+        let parents = unwrap!(
+            repo.history.get_parents(next),
+            "could not get hash of {next:?} in repository"
+        );
+        
         queue.extend(parents);
     }
 
