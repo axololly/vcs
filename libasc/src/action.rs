@@ -2,7 +2,7 @@ use derive_more::Display;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{hash::ObjectHash, utils::DisplaySeq};
+use crate::{hash::ObjectHash, key::PublicKey, utils::DisplaySeq};
 
 /// Represents an action made on the repository.
 /// 
@@ -10,7 +10,7 @@ use crate::{hash::ObjectHash, utils::DisplaySeq};
 #[derive(Clone, Debug, Display, Deserialize, Serialize, PartialEq)]
 pub enum Action {
     // Snapshots
-    #[display("rebased snapshot {hash} from {:?} to {:?}", DisplaySeq(from), DisplaySeq(to))]
+    #[display("Rebased snapshot {hash} from {:?} to {:?}", DisplaySeq(from), DisplaySeq(to))]
     RebaseSnapshot {
         hash: ObjectHash,
         from: Vec<ObjectHash>,
@@ -18,17 +18,17 @@ pub enum Action {
     },
 
     // Branches
-    #[display("created branch {name:?} pointing to {hash}")]
+    #[display("Created branch {name:?} pointing to {hash}")]
     CreateBranch {
         name: String,
         hash: ObjectHash
     },
-    #[display("deleted branch {name:?} that was pointing to {hash}")]
+    #[display("Deleted branch {name:?} that was pointing to {hash}")]
     DeleteBranch {
         name: String,
         hash: ObjectHash
     },
-    #[display("renamed branch {old} to {new} ({hash})")]
+    #[display("Renamed branch {old} to {new} ({hash})")]
     RenameBranch {
         hash: ObjectHash,
         old: String,
@@ -36,10 +36,56 @@ pub enum Action {
     },
 
     // Checkouts
-    #[display("switched versions from {before} to {after}")]
+    #[display("Switched versions from {before} to {after}")]
     SwitchVersion {
         before: ObjectHash,
         after: ObjectHash
+    },
+
+    // Tags
+    #[display("Added tag {name:?} at {hash}")]
+    CreateTag {
+        name: String,
+        hash: ObjectHash
+    },
+    #[display("Removed tag {name:?} (previously was at {hash})")]
+    RemoveTag {
+        name: String,
+        hash: ObjectHash
+    },
+    #[display("Renamed tag {old:?} to {new:?} ({hash})")]
+    RenameTag {
+        old: String,
+        new: String,
+        hash: ObjectHash
+    },
+
+    // Trash
+    #[display("Added {hash} to trash")]
+    TrashAdd {
+        hash: ObjectHash
+    },
+    #[display("Recovered {hash} from trash")]
+    TrashRecover {
+        hash: ObjectHash
+    },
+
+    // Users
+    #[display("Opened account {name:?} (key: {})", &id.to_string()[..8])]
+    OpenAccount {
+        name: String,
+        id: PublicKey
+    },
+    #[display("Closed account {name:?} (key: {})", &id.to_string()[..8])]
+    CloseAccount {
+        name: String,
+        id: PublicKey
+    },
+    #[display("Renamed account {old:?} to {new:?} (key: {})", &id.to_string()[..8])]
+    RenameAccount {
+        old: String,
+        new: String,
+        id: PublicKey
     }
 }
 

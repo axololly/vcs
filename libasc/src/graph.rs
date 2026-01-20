@@ -128,3 +128,9 @@ impl Graph {
         Ok(())
     }
 }
+
+impl From<HashMap<ObjectHash, HashSet<ObjectHash>>> for Graph {
+    fn from(value: HashMap<ObjectHash, HashSet<ObjectHash>>) -> Self {
+        Graph { links: value }
+    }
+}

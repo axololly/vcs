@@ -3,7 +3,7 @@ use std::io::{Read, stdin};
 use clap::Subcommand;
 use eyre::{Result, bail};
 
-use libasc::repository::Repository;
+use libasc::{action::Action, repository::Repository};
 
 #[derive(Subcommand)]
 pub enum Subcommands {
@@ -78,8 +78,13 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 let prompt = format!("You are going to override the tag {name:?} ({previous}) with {hash}. Are you sure you want to do this?");
 
                 if !prompt_user(prompt)? {
-                    repo.tags.insert(name, previous);
+                    repo.tags.insert(name.clone(), previous);
                 }
+            }
+            else {
+                repo.action_history.push(
+                    Action::CreateTag { name, hash }
+                );
             }
         },
 
@@ -108,6 +113,13 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             for name in names {
                 if let Some(removed) = repo.tags.remove(&name) {
                     println!("Removed tag {name:?} ({removed}) from the repository.");
+
+                    repo.action_history.push(
+                        Action::RemoveTag {
+                            name,
+                            hash: removed
+                        }
+                    );
                 }
                 else if keep_going {
                     println!("Warning: tag {name:?} does not exist in the repository. Continuing...");
@@ -122,7 +134,15 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             if let Some(hash) = repo.tags.remove(&old) {
                 println!("Renamed {old:?} to {new:?} ({hash})");
 
-                repo.tags.insert(new, hash);
+                repo.tags.insert(new.clone(), hash);
+
+                repo.action_history.push(
+                    Action::RenameTag {
+                        old,
+                        new,
+                        hash
+                    }
+                );
             }
             else {
                 bail!("tag {old:?} does not exist in the repository.")

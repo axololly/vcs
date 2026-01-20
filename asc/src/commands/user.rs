@@ -17,6 +17,7 @@ pub enum Subcommands {
     },
 
     /// List all users in the repository.
+    #[command(visible_alias = "ls")]
     List,
 
     /// Get or set which user the repository is using for commits.
@@ -48,6 +49,12 @@ pub enum Subcommands {
     /// Reopen a user account, making it usable for authentication.
     Reopen {
         username: String
+    },
+
+    /// Rename a user account.
+    Rename {
+        old: String,
+        new: String
     }
 }
 
@@ -201,6 +208,17 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 original_perms,
                 new_perms
             );
+        },
+
+        Rename { old, new } => {
+            let user = unwrap!(
+                repo.users.get_user_mut(&old),
+                "no user in this repository with the name {old:?}"
+            );
+
+            user.name = new;
+
+            println!("Renamed user: {old:?} -> {:?}", user.name);
         }
     }
 

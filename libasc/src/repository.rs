@@ -257,6 +257,55 @@ impl Repository {
 
             SwitchVersion { after, .. } => {
                 self.current_hash = after;
+            },
+
+            CreateTag { name, hash } => {
+                self.tags.insert(name, hash);
+            },
+
+            RemoveTag { name, .. } => {
+                self.tags.remove(&name);
+            },
+
+            RenameTag { old, new, hash } => {
+                self.tags.remove(&old);
+
+                self.tags.insert(new, hash);
+            },
+
+            CloseAccount { id, .. } => {
+                let user = unwrap!(
+                    self.users.get_user_mut_by_pub_key(id),
+                    "no user account with public key {id}"
+                );
+
+                user.closed = true;
+            },
+
+            OpenAccount { id, .. } => {
+                let user = unwrap!(
+                    self.users.get_user_mut_by_pub_key(id),
+                    "no user account with public key {id}"
+                );
+
+                user.closed = true;
+            },
+
+            RenameAccount { new, id, .. } => {
+                let user = unwrap!(
+                    self.users.get_user_mut_by_pub_key(id),
+                    "no user account with public key {id}"
+                );
+
+                user.name = new;
+            }
+
+            TrashAdd { hash } => {
+                self.trash.add(hash);
+            },
+
+            TrashRecover { hash } => {
+                self.trash.remove(hash);
             }
         }
 
@@ -280,6 +329,17 @@ impl Repository {
             RenameBranch { hash, old, new } => RenameBranch { hash, old: new, new: old },
 
             SwitchVersion { before, after } => SwitchVersion { before: after, after: before },
+
+            CreateTag { name, hash } => RemoveTag { name, hash },
+            RemoveTag { name, hash } => CreateTag { name, hash },
+            RenameTag { old, new, hash } => RenameTag { old: new, new: old, hash },
+
+            OpenAccount { id, name } => CloseAccount { id, name },
+            CloseAccount { id, name } => OpenAccount { id, name },
+            RenameAccount { old, new, id } => RenameAccount { old: new, new: old, id },
+
+            TrashAdd { hash } => TrashRecover { hash },
+            TrashRecover { hash } => TrashAdd { hash },
         };
 
         self.apply_action(inverse.clone())?;
