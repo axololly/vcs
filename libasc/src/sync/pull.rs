@@ -5,33 +5,104 @@ use rateless_tables::{Decoder, Encoder, Symbol};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt as Read, AsyncWriteExt as Write};
 
-use crate::{action::Action, content::Content, graph::Graph, hash::{ObjectHash, RawObjectHash}, repository::{NamedHashes, Repository}, sync::{stream::Stream, utils::{Repo, handle_login, login_as}}, unwrap, user::User};
+use crate::{action::Action, content::Content, graph::Graph, hash::{ObjectHash, RawObjectHash}, repository::{NamedHashes, Repository}, snapshot::Snapshot, sync::{stream::Stream, utils::{dfs_get, handle_login, login_as, BranchResponse, Object, Repo, SendState, DONE, PENDING}}, unwrap, user::User};
 
-pub fn dfs_get(graph: &Graph, start: ObjectHash, chain: &mut Graph) {
-    let parents = graph.get_parents(start).unwrap();
+async fn client_fetch_objects(
+    stream: &mut impl Stream,
+    repo: &Repository
+) -> Result<HashMap<ObjectHash, Object>>
+{
+    let mut queue: VecDeque<ObjectHash> = VecDeque::new();
 
-    if parents.is_empty() {
-        chain.insert_orphan(start);
+    let mut snapshots_to_resolve: HashSet<ObjectHash> = HashSet::new();
+
+    for snapshot_hash in repo.history.iter_hashes() {
+        let Ok(snapshot) = repo.fetch_snapshot(snapshot_hash) else {
+            queue.push_back(snapshot_hash);
+            
+            snapshots_to_resolve.insert(snapshot_hash);
+
+            continue;
+        };
+
+        for content_hash in snapshot.files.into_values() {
+            if repo.fetch_content_object(content_hash).is_err() {
+                queue.push_back(snapshot_hash);
+            }
+        }
     }
 
-    for &parent in parents {
-        chain.insert(start, parent);
+    let mut contents: HashMap<ObjectHash, Object> = HashMap::new();
 
-        dfs_get(graph, parent, chain);
+    while let Some(next) = queue.pop_front() {
+        stream.send(&PENDING).await?;
+
+        stream.send(&next).await?;
+        
+        let raw_object: Result<Object, String> = stream.receive().await?;
+
+        let content = raw_object
+            .map_err(|message| eyre!("server error: {message}"))?;
+
+        if let Object::Commit(snapshot) = &content
+            && snapshots_to_resolve.contains(&snapshot.hash)
+        {
+            queue.extend(snapshot.files.values().cloned());
+        }
+
+        if let Object::Content(Content::Delta(delta)) = &content
+            && repo.fetch_string_content(delta.original).is_err()
+        {
+            queue.push_back(delta.original);
+        }
+
+        contents.insert(next, content);
     }
+
+    stream.send(&DONE).await?;
+
+    Ok(contents)
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
-enum SendState<T> {
-    // "That's enough streaming. Here is ..."
-    Done(T),
+async fn server_serve_content(
+    stream: &mut impl Stream,
+    repo: &Repository
+) -> Result<()>
+{
+    loop {
+        let state: SendState<()> = stream.receive().await?;
 
-    // "I'm not done, keep streaming"
-    Pending
+        if state == DONE {
+            break;
+        }
+
+        let hash: ObjectHash = stream.receive().await?;
+
+        let result = if repo.history.contains(hash) {
+            repo.fetch_snapshot(hash)
+                .map(Box::new)
+                .map(Object::Commit)
+        }
+        else {
+            repo.fetch_content_object(hash)
+                .map(Object::Content)
+        };
+
+        if let Err(e) = &result {
+            let error: Result<(), String> = Err(e.to_string());
+
+            stream.send(&error).await?;
+
+            return result.map(|_| ());
+        }
+
+        let reply: Result<Object, ()> = result.map_err(|_| ());
+
+        stream.send(&reply).await?;
+    }
+
+    Ok(())
 }
-
-const PENDING: SendState<()> = SendState::Pending;
-const DONE: SendState<()> = SendState::Done(());
 
 pub enum BranchPullResult {
     NotOnRemote,
@@ -50,12 +121,6 @@ pub enum PullResult {
     Tag(String, TagPullResult)
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-enum BranchResponse {
-    HasBranch(ObjectHash),
-    DoesntHaveBranch
-}
-
 pub async fn client_pull_one_branch(
     stream: &mut impl Stream,
     repo: &Repository,
@@ -70,8 +135,6 @@ pub async fn client_pull_one_branch(
 
     match branch_response {
         BranchResponse::HasBranch(remote_tip) => {
-            println!("comparing tips of {branch}: {local_tip} vs {remote_tip}");
-            
             if local_tip == remote_tip {
                 return Ok(BranchPullResult::UpToDate);
             }
@@ -133,8 +196,6 @@ pub async fn handle_pull_as_client(
 
     for name in branch_names {
         stream.send(&PENDING).await?;
-        
-        println!("pulling branch {name}");
     
         let result = client_pull_one_branch(stream, &repo, &name).await?;
         
@@ -159,8 +220,6 @@ pub async fn handle_pull_as_client(
             }
 
             BranchPullResult::Conflict(graph, local_tip, remote_tip) => {
-                println!("conflict on branch {name} - dividing branches");
-
                 repo.history.extend(graph);
 
                 repo.branches.create(format!("{name}-local"), *local_tip);
@@ -189,15 +248,45 @@ pub async fn handle_pull_as_client(
 
     stream.send(&DONE).await?;
 
-    let server_tags: NamedHashes = stream.receive().await?;
+    stream.send(&repo.tags).await?;
 
-    for (name, server_hash) in server_tags.into_iter() {
+    let new_tags: NamedHashes = stream.receive().await?;
+
+    for (name, server_hash) in new_tags.into_iter() {
         let tag_result = match repo.tags.get(&name) {
-            Some(hash) if hash != server_hash => {
-                TagPullResult::Conflict(hash, server_hash)
+            Some(client_hash) if client_hash != server_hash => {
+                repo.tags.rename(&name, format!("{name}-local"));
+                
+                repo.action_history.push(
+                    Action::RenameTag {
+                        old: name.to_string(),
+                        new: format!("{name}-local"),
+                        hash: client_hash
+                    }
+                );
+
+                repo.tags.create(name.clone(), server_hash);
+
+                repo.action_history.push(
+                    Action::CreateTag {
+                        name: name.to_string(),
+                        hash: client_hash
+                    }
+                );
+
+                TagPullResult::Conflict(client_hash, server_hash)
             },
             
             None => {
+                repo.tags.create(name.to_string(), server_hash);
+
+                repo.action_history.push(
+                    Action::CreateTag {
+                        name: name.to_string(),
+                        hash: server_hash
+                    }
+                );
+
                 TagPullResult::New(server_hash)
             },
 
@@ -205,6 +294,15 @@ pub async fn handle_pull_as_client(
         };
 
         pull_results.push(PullResult::Tag(name, tag_result));
+    }
+
+    let mut new_objects = client_fetch_objects(stream, &repo).await?;
+
+    for (hash, object) in new_objects {
+        match object {
+            Object::Commit(snapshot) => repo.save_snapshot(*snapshot)?,
+            Object::Content(content) => repo.save_content_object(content, hash)?
+        }
     }
     
     Ok(pull_results)
@@ -217,19 +315,17 @@ pub async fn handle_pull_as_server(
     let mut repo = repo.lock().await;
 
     let check = |user: &User| {
-        if user.permissions.can_pull() {
-            Ok(())
-        }
-        else {
-            Err("user does not have permission".to_string())
-        }
+        user.permissions
+            .can_pull()
+            .then_some(())
+            .ok_or(format!("user {:?} does not have permission to pull", user.name))
     };
 
     handle_login(&repo, stream, check).await?;
 
-    let do_branches: SendState<()> = stream.receive().await?;
-
     loop {
+        let do_branches: SendState<()> = stream.receive().await?;
+
         if do_branches == DONE {
             break;
         }
@@ -239,10 +335,14 @@ pub async fn handle_pull_as_server(
         let Some(server_tip) = repo.branches.get(&branch_name) else {
             stream.send(&BranchResponse::DoesntHaveBranch).await?;
 
-            continue
+            continue;
         };
 
         stream.send(&BranchResponse::HasBranch(server_tip)).await?;
+
+        if client_tip == server_tip {
+            continue;
+        }
 
         let mut branch = Graph::new();
 
@@ -285,16 +385,25 @@ pub async fn handle_pull_as_server(
         let done: SendState<_> = SendState::Done((diff, server_tip));
 
         stream.send(&done).await?;
-
-        let is_client_done: SendState<()> = stream.receive().await?;
-
-        if is_client_done == DONE {
-            break;
-        }
     }
 
-    stream.send(&repo.tags).await?;
+    let client_tags: NamedHashes = stream.receive().await?;
 
-    let stop: u8 = stream.receive().await?;
+    let mut new_tags = NamedHashes::new();
+
+    for (name, &server_hash) in repo.tags.iter() {
+        if let Some(client_hash) = client_tags.get(name)
+            && client_hash == server_hash
+        {
+            continue;
+        }
+        
+        new_tags.create(name.to_string(), server_hash);
+    }
+
+    stream.send(&new_tags).await?;
+
+    server_serve_content(stream, &repo).await?;
+
     Ok(())
 }

@@ -4,7 +4,7 @@ use std::{collections::HashMap, fs::{create_dir, remove_dir_all}, path::{Path, P
 
 use chrono::Utc;
 use eyre::{Result, eyre};
-use libasc::{graph::Graph, repository::Repository, snapshot::Snapshot, sync::{pull::{BranchPullResult, PullResult, TagPullResult, dfs_get, handle_pull_as_client, handle_pull_as_server}, stream::{Stream, local_duplex}}};
+use libasc::{graph::Graph, repository::Repository, snapshot::Snapshot, sync::{pull::{BranchPullResult, PullResult, TagPullResult, handle_pull_as_client, handle_pull_as_server}, stream::{Stream, local_duplex}}};
 use tokio::{io::simplex, sync::Mutex};
 
 fn ensure_empty(path: impl AsRef<Path>) -> Result<()> {
@@ -113,9 +113,7 @@ fn setup_both_repos() -> Result<()> {
 
     local.append_snapshot(commit2_1);
 
-    local.save()?;
-
-    let content2_2 = local.save_content(
+    let content2_2 = remote.save_content(
         "print('goodbye world 2.2!')",
         Some(content2)
     )?;
@@ -132,10 +130,12 @@ fn setup_both_repos() -> Result<()> {
 
     println!("saving commit 2.2 ({})", commit2_2.hash);
 
-    local.tags.create("v0.2.2".to_string(), commit2_2.hash);
+    remote.tags.create("v0.2.2".to_string(), commit2_2.hash);
 
     remote.append_snapshot(commit2_2);
 
+    local.save()?;
+    
     remote.save()?;
 
     Ok(())
@@ -173,10 +173,14 @@ async fn make_pull() -> Result<()> {
 
     let local_repo = local.lock().await;
 
+    println!("saving tags: {:?}", local_repo.tags);
+
+    local_repo.save()?;
+
     for result in results {
         let name = match &result {
             PullResult::Branch(name, _) => name.to_string(),
-            PullResult::Tag(name, _) => format!("tag:{name}")
+            PullResult::Tag(name, _) => name.to_string() /* format!("tag:{name}") */
         };
 
         let status = match result {
@@ -189,11 +193,25 @@ async fn make_pull() -> Result<()> {
 
             PullResult::Tag(name, tag_result) => match tag_result {
                 TagPullResult::Conflict(local, remote) => format!("{local} vs {remote} (tag: {name})"),
-                TagPullResult::New(hash) => format!("new tag: {name} ({hash})")
+                TagPullResult::New(hash) => format!("new tag ({hash})")
             }
         };
 
         println!("{name}: {status}");
+    }
+
+    Ok(())
+}
+
+fn list_actions() -> Result<()> {
+    let mut local = Repository::load_from("/tmp/test-local-repo")?;
+
+    let (undoable, redoable) = local.action_history.as_slices();
+
+    println!("--- Actions Locally ---");
+    
+    for action in std::iter::chain(undoable, redoable) {
+        println!(" * {action}");
     }
 
     Ok(())
@@ -213,9 +231,17 @@ async fn main() -> Result<()> {
 
     println!();
 
+    list_actions()?;
+
+    println!();
+
     println!("--- Second Pull ---");
 
     make_pull().await?;
+
+    println!();
+
+    list_actions()?;
 
     Ok(())
 }

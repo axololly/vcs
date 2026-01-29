@@ -59,7 +59,11 @@ impl NamedHashes {
         self.inner.into_iter()
     }
 
-    pub fn iter_hashes(&self) -> impl Iterator<Item = ObjectHash> {
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.inner.keys().map(|s| s.as_str())
+    }
+
+    pub fn hashes(&self) -> impl Iterator<Item = ObjectHash> {
         self.inner.values().cloned()
     }
 }
@@ -1005,7 +1009,7 @@ impl Repository {
     pub fn validate_history(&self) -> Result<()> {
         let mut queue = VecDeque::new();
 
-        queue.extend(self.branches.iter_hashes());
+        queue.extend(self.branches.hashes());
 
         while let Some(current) = queue.pop_back() {
             let snapshot = self.fetch_snapshot(current)?;

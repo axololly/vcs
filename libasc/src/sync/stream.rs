@@ -3,12 +3,7 @@ use std::io;
 use async_trait::async_trait;
 use eyre::Result;
 use serde::{Serialize, de::DeserializeOwned};
-use tokio::{
-    io::{
-        AsyncReadExt as Read, AsyncWriteExt as Write, ReadHalf, SimplexStream, WriteHalf, simplex,
-    },
-    sync::mpsc::{Receiver, Sender},
-};
+use tokio::{io::{AsyncReadExt as Read, AsyncWriteExt as Write, ReadHalf, SimplexStream, WriteHalf, simplex}, sync::mpsc::{Receiver, Sender}};
 
 #[async_trait]
 pub trait Stream: Send {
@@ -41,7 +36,11 @@ pub trait Stream: Send {
     async fn send<T: Serialize + Sync>(&mut self, object: &T) -> Result<()> {
         let bytes = rmp_serde::to_vec(object)?;
 
-        // println!("sending object {} (rmp: {} bytes)", std::any::type_name::<T>(), bytes.len());
+        // println!(
+        //     "sending object {} (rmp: {} bytes)",
+        //     std::any::type_name::<T>(),
+        //     bytes.len()
+        // );
 
         self.write(&bytes).await?;
 
@@ -51,7 +50,11 @@ pub trait Stream: Send {
     async fn receive<T: DeserializeOwned>(&mut self) -> Result<T> {
         let bytes = self.read().await?;
 
-        // println!("trying to read object {} (rmp: {} bytes)", std::any::type_name::<T>(), bytes.len());
+        // println!(
+        //     "trying to read object {} (rmp: {} bytes)",
+        //     std::any::type_name::<T>(),
+        //     bytes.len()
+        // );
 
         let object = rmp_serde::from_slice(&bytes)?;
 
