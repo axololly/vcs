@@ -4,10 +4,11 @@ use chrono::Utc;
 use clap::Args as A;
 
 use eyre::{Result, bail};
-use sha1::{Digest, Sha1};
+
+// TODO: write your own
 use threeway_merge::{merge_strings, MergeOptions};
 
-use libasc::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, unwrap, utils::get_content_from_editor};
+use libasc::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, set, snapshot::Snapshot, unwrap, utils::get_content_from_editor};
 
 use crate::commands::commit::COMMIT_TEMPLATE_MESSAGE;
 
@@ -191,14 +192,13 @@ pub fn parse(args: Args) -> Result<()> {
 
     // Files that exist in both will have merge conflicts that need resolving.
     for path in our_paths.intersection(&their_paths) {
-        let ours = repo.fetch_string_content(our_files[path.as_path()])?.resolve(&repo)?;
-        let theirs = repo.fetch_string_content(their_files[path.as_path()])?.resolve(&repo)?;
+        let ours = repo.fetch_string_content(our_files[path.as_path()])?;
+        let theirs = repo.fetch_string_content(their_files[path.as_path()])?;
 
         let base = base_files
             .get(path.as_path())
             .map(|&content_hash| repo.fetch_string_content(content_hash))
-            .map(|r| r.map(|c| c.resolve(&repo)))
-            .unwrap_or(Ok(Ok(String::new())))??;
+            .unwrap_or(Ok(String::new()))?;
 
         let merge_result = merge_strings(&base, &ours, &theirs, &options)?;
 
@@ -211,17 +211,13 @@ pub fn parse(args: Args) -> Result<()> {
 
         merged_files.insert(path.to_path_buf(), merge_type);
     }
-
-    let mut hasher = Sha1::new();
     
     let user = unwrap!(
         repo.current_user(),
         "no valid user is set for this repository."
     );
 
-    let author = user.name.clone();
-
-    hasher.update(&author);
+    let author_key = user.private_key.clone().unwrap();
 
     let message = if let Some(msg) = args.message {
         msg
@@ -238,8 +234,6 @@ pub fn parse(args: Args) -> Result<()> {
 
         get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
     };
-
-    hasher.update(&message);
 
     let mut files = BTreeMap::new();
 
@@ -261,12 +255,7 @@ pub fn parse(args: Args) -> Result<()> {
         };
 
         let hash = match content {
-            ContentType::Get(string) => {
-                hasher.update(&string);
-
-                repo.save_content_raw(&string)?
-            }
-
+            ContentType::Get(string) => repo.save_content_raw(&string)?,
             ContentType::Fetch(hash) => hash
         };
 
@@ -274,10 +263,11 @@ pub fn parse(args: Args) -> Result<()> {
     }
 
     let snapshot = Snapshot::new(
-        author,
+        author_key,
         message,
         Utc::now(),
-        files
+        files,
+        set![repo.current_hash, target]
     );
 
     repo.replace_cwd_with_snapshot(&snapshot)?;
@@ -289,24 +279,26 @@ pub fn parse(args: Args) -> Result<()> {
             .cloned()
             .collect();
 
+        let conflicting_files = repo.staged_files.len() - new_staged_files.len();
+
         repo.staged_files = new_staged_files;
+
+        eprintln!("Finished merge unsuccessfully: {conflicting_files} conflicting files");
+
+        return Ok(());
     }
 
     if args.no_commit {
-        println!("Finished merge but snapshot must be committed manually.");
+        eprintln!("Finished merge but snapshot must be committed manually.");
         
         return Ok(());
     }
 
-    repo.save_snapshot(snapshot.clone())?;
-
-    repo.history.remove(snapshot.hash);
-
-    repo.history.insert(snapshot.hash, repo.current_hash)?;
-    repo.history.insert(snapshot.hash, target)?;
+    repo.history.insert(snapshot.hash, repo.current_hash);
+    repo.history.insert(snapshot.hash, target);
 
     if let Some(name) = repo.current_branch() {
-        repo.branches.insert(name.to_string(), snapshot.hash);
+        repo.branches.create(name.to_string(), snapshot.hash);
     }
 
     repo.action_history.push(
@@ -316,15 +308,23 @@ pub fn parse(args: Args) -> Result<()> {
         }
     );
 
-    let previous = repo.current_hash;
+    let current = match repo.current_branch() {
+        Some(name) => name.to_string(),
+        None => format!("{}", repo.current_hash)
+    };
+
+    let target = match repo.branch_from_hash(target) {
+        Some(name) => name.to_string(),
+        None => format!("{}", repo.current_hash)
+    };
 
     repo.current_hash = snapshot.hash;
 
     repo.save()?;
 
-    println!("Merged {previous} and {target}.");
+    println!("Merged {current} and {target}.");
     
-    println!("New commit: {}", snapshot.hash);
+    println!("New commit: {:?}", snapshot.hash);
     
     Ok(())
 }

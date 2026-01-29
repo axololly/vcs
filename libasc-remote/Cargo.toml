@@ -1,0 +1,35 @@
+[package]
+name = "libasc-remote"
+description = "Functionality for communicating with remotes"
+version = "0.6.0"
+edition = "2024"
+
+[dependencies]
+async-ssh2-tokio = "0.12.1"
+chrono = "0.4.42"
+color-eyre = "0.6.5"
+ecdsa = { version = "0.16.9", features = ["signing", "verifying"] }
+eyre = "0.6.12"
+fs_extra = "1.3.0"
+libasc = { path = "../libasc" }
+p256 = { version = "0.13.2", features = ["ecdh"] }
+rand = "0.8"
+rmp-serde = "1.3.0"
+serde = "1.0.228"
+serde_bytes = "0.11.19"
+url-parse = "1.0.10" # for parsing URLs when the time comes
+zerocopy = "0.8.33"
+
+[dependencies.rateless-tables]
+git = "https://github.com/axololly/rateless-tables"
+version = "0.3.1"
+
+[dependencies.tokio]
+version = "1.48.0"
+features = [
+    "io-util",
+    "macros",
+    "net",
+    "rt-multi-thread",
+    "sync"
+]

@@ -11,30 +11,24 @@ pub fn parse() -> Result<()> {
     
     let mut valid_commits: HashSet<ObjectHash> = HashSet::new();
 
-    let mut queue: VecDeque<ObjectHash> = VecDeque::from_iter(repo.branches.values().cloned());
+    let mut queue: VecDeque<ObjectHash> = repo.branches.iter_hashes().collect();
 
     while let Some(current) = queue.pop_front() {
-        if current.is_root() {
-            break;
-        }
-
         if repo.trash_contains(current).is_some() {
             continue;
         }
 
         valid_commits.insert(current);
 
-        let parents = repo.history.get_parents(current).unwrap();
-        
-        queue.extend(parents.iter());
-
-        valid_commits.insert(current);
-        
         valid_blobs.insert(repo.hash_to_path(current));
 
         let snapshot = repo.fetch_snapshot(current)?;
 
         valid_blobs.extend(snapshot.files.values().map(|&hash| repo.hash_to_path(hash)));
+
+        let parents = repo.history.get_parents(current).unwrap();
+        
+        queue.extend(parents.iter());
     }
 
     let all_commits: HashSet<ObjectHash> = repo.history.iter_hashes().collect();
@@ -46,8 +40,8 @@ pub fn parse() -> Result<()> {
 
     println!("Removed {removed} snapshots from the repository history.");
     
-    for stash in &repo.stashes {
-        let snapshot = repo.fetch_snapshot(stash.snapshot)?;
+    for entry in repo.stash.iter_entries() {
+        let snapshot = repo.fetch_snapshot(entry.basis)?;
 
         valid_blobs.insert(repo.hash_to_path(snapshot.hash));
 

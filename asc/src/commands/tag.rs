@@ -74,11 +74,11 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
         Create { name, version } => {
             let hash = repo.normalise_version(&version)?;
 
-            if let Some(previous) = repo.tags.insert(name.clone(), hash) {
+            if let Some(previous) = repo.tags.create(name.clone(), hash) {
                 let prompt = format!("You are going to override the tag {name:?} ({previous}) with {hash}. Are you sure you want to do this?");
 
                 if !prompt_user(prompt)? {
-                    repo.tags.insert(name.clone(), previous);
+                    repo.tags.create(name.clone(), previous);
                 }
             }
             else {
@@ -134,7 +134,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             if let Some(hash) = repo.tags.remove(&old) {
                 println!("Renamed {old:?} to {new:?} ({hash})");
 
-                repo.tags.insert(new.clone(), hash);
+                repo.tags.create(new.clone(), hash);
 
                 repo.action_history.push(
                     Action::RenameTag {

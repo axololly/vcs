@@ -1,7 +1,7 @@
-use std::{fmt::{Debug, Display, Formatter}, str::FromStr};
+use std::{fmt::{Debug, Display, Formatter}, hash::{DefaultHasher, Hasher}, str::FromStr};
 
 use eyre::bail;
-use rateless_tables::{Bytes, Symbol};
+use rateless_tables::Symbol;
 use serde::{Deserialize, Serialize};
 
 pub type RawObjectHash = [u8; 32];
@@ -12,16 +12,6 @@ pub type RawObjectHash = [u8; 32];
 pub struct ObjectHash(#[serde(with = "serde_bytes")] RawObjectHash);
 
 impl ObjectHash {
-    /// Return the root hash, which is all zeroes.
-    pub fn root() -> ObjectHash {
-        ObjectHash([0u8; 32])
-    }
-
-    /// Check if this hash points to the root snapshot's hash.
-    pub fn is_root(&self) -> bool {
-        self == &Self::root()
-    }
-
     /// Get the full hash as a hex string.
     /// 
     /// By default, in this type's implementation of [`Display`],
@@ -67,21 +57,17 @@ impl FromStr for ObjectHash {
 
         Ok(ObjectHash(bytes[..].try_into()?))
     }
-} 
-
-impl Bytes for ObjectHash {
-    fn from_bytes(bytes: &[u8]) -> Self {
-        let bytes: RawObjectHash = bytes.try_into().expect("could not create hash from bytes");
-
-        bytes.into()
-    }
-
-    fn to_bytes(&self) -> Vec<u8> {
-        self.as_bytes().to_vec()
-    }
 }
 
 impl Symbol for ObjectHash {
+    fn get_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+
+        hasher.write(self.as_bytes());
+
+        hasher.finish()
+    }
+    
     fn xor(&self, other: &Self) -> Self {
         let mut result = *self.as_bytes();
 

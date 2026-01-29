@@ -1,8 +1,10 @@
+use std::collections::{HashMap, HashSet};
+
 use chrono::{DateTime, Utc};
 use clap::Args as A;
 use eyre::{Result, bail};
 
-use libasc::{repository::Repository, snapshot::{SignedSnapshotEdit, SnapshotEdit}, unwrap};
+use libasc::{hash::ObjectHash, repository::Repository, unwrap};
 
 #[derive(A)]
 pub struct Args {
@@ -22,21 +24,69 @@ pub struct Args {
     datetime: Option<String>
 }
 
-pub fn parse(args: Args) -> Result<()> {
-    let repo = Repository::load()?;
+fn update_recursively(
+    old: ObjectHash,
+    new: ObjectHash,
+    inverted: &HashMap<ObjectHash, HashSet<ObjectHash>>,
+    repo: &mut Repository,
+    updated_branches: &mut Vec<(String, (ObjectHash, ObjectHash))>
+) -> Result<usize>
+{
+    let mut count = 0;
 
-    let editing_user = unwrap!(
+    if let Some(parents) = repo.history.get_parents(old).cloned() {
+        for parent in parents {
+            repo.history.insert(new, parent);
+        }
+    }
+
+    let children = &inverted[&old];
+
+    for &child in children {
+        let mut child_snapshot = repo.fetch_snapshot(child)?;
+
+        child_snapshot.parents.remove(&old);
+        child_snapshot.parents.insert(new);
+
+        let old = child_snapshot.hash;
+
+        child_snapshot.rehash();
+
+        let new = child_snapshot.hash;
+
+        repo.save_snapshot(child_snapshot)?;
+
+        let search = repo.branches
+            .iter()
+            .find(|(_, hash)| **hash == old)
+            .map(|(name, _)| name)
+            .cloned();
+
+        if let Some(name) = search {
+            repo.branches.create(name.clone(), new);
+
+            updated_branches.push((name, (old, new)));
+        }
+
+        count += update_recursively(old, new, inverted, repo, updated_branches)?;
+    }
+
+    Ok(count)
+}
+
+pub fn parse(args: Args) -> Result<()> {
+    let mut repo = Repository::load()?;
+
+    unwrap!(
         repo.current_user(),
         "no valid user is set for this repository."
     );
-
-    let editing_user_key = editing_user.private_key.clone().unwrap();
 
     let version = repo.normalise_hash(&args.hash)?;
 
     let mut snapshot = repo.fetch_snapshot(version)?;
 
-    let mut edits = vec![];
+    snapshot.verify()?;
 
     if let Some(author) = args.author {
         let new_owner = unwrap!(
@@ -44,22 +94,21 @@ pub fn parse(args: Args) -> Result<()> {
             "no user by the name of {author:?} in the repository."
         );
 
-        let mut private_key = unwrap!(
-            new_owner.private_key.clone(),
-            "cannot rename author of commit to user {:?} (no private key)", new_owner.name
-        );
+        if new_owner.private_key.is_none() {
+            bail!("cannot rename author of commit to user {:?} (no private key)", new_owner.name);
+        }
 
-        let signature = private_key.sign(snapshot.hash.as_bytes());
-
-        edits.push(SnapshotEdit::ReplaceAuthor(author, signature));
+        snapshot.author = new_owner.public_key;
     }
 
     if let Some(message) = args.message {
         if message.is_empty() {
-            bail!("messages for snapshots cannot be empty.");
+            eprintln!("Empty messages for snapshots are disallowed.");
+
+            return Ok(());
         }
 
-        edits.push(SnapshotEdit::ReplaceMessage(message));
+        snapshot.message = message;
     }
 
     if let Some(datetime) = args.datetime {
@@ -68,22 +117,43 @@ pub fn parse(args: Args) -> Result<()> {
             "failed to parse raw datetime {datetime:?}"
         );
         
-        edits.push(SnapshotEdit::ReplaceTimestamp(timestamp));
+        snapshot.timestamp = timestamp;
     }
 
-    if edits.is_empty() {
-        bail!("no modifications were given for snapshot.");
+    let old_hash = snapshot.hash;
+
+    snapshot.rehash();
+
+    if old_hash == snapshot.hash {
+        eprintln!("No changes were made to the snapshot.");
+
+        return Ok(());
     }
 
-    let changes = edits.len();
+    let inverted = repo.history.invert();
 
-    let signed_edit = SignedSnapshotEdit::new(edits, editing_user_key);
+    let mut updated_branches = vec![];
 
-    snapshot.edits.push(signed_edit);
+    let updated_nodes = update_recursively(
+        old_hash,
+        snapshot.hash,
+        &inverted,
+        &mut repo,
+        &mut updated_branches
+    )?;
 
-    println!("Modified snapshot {:?} ({} changes)", snapshot.hash, changes);
+    println!("Updated {updated_nodes} nodes.");
 
-    repo.save_snapshot(snapshot)?;
+    if updated_branches.is_empty() {
+        println!("No branches were updated.");
+    }
+    else {
+        println!("Updated branches:");
+    }
+
+    for (name, (old, new)) in updated_branches {
+        println!(" * {name} ({old} -> {new})");
+    }
 
     repo.save()?;
 

@@ -50,14 +50,7 @@ pub fn parse(args: Args) -> Result<()> {
         get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
     };
 
-    let current_user = unwrap!(
-        repo.current_user(),
-        "no selected user for this repository"
-    );
-
-    let author = current_user.name.clone();
-
-    let snapshot = repo.capture_current_state(author, message)?;
+    let snapshot = repo.commit_current_state(message)?;
 
     if let Some(new_branch) = args.branch {
         if let Some(previous_hash) = repo.branches.get(&new_branch) {

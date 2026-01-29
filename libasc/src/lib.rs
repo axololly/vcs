@@ -7,6 +7,7 @@ pub mod key;
 pub mod repository;
 pub mod snapshot;
 pub mod stash;
+pub mod sync;
 pub mod trash;
 pub mod user;
 

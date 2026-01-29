@@ -34,7 +34,7 @@ pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
     let mut current_hash = if let Some(branch) = args.branch {
-        *unwrap!(
+        unwrap!(
             repo.branches.get(&branch),
             "branch {branch:?} does not exist."
         )
@@ -49,10 +49,6 @@ pub fn parse(args: Args) -> Result<()> {
         let current = repo.fetch_snapshot(current_hash)?;
 
         snapshots.push(current);
-
-        if current_hash.is_root() {
-            break;
-        }
 
         let parents = unwrap!(
             repo.history.get_parents(current_hash),
@@ -95,8 +91,8 @@ pub fn parse(args: Args) -> Result<()> {
                 let line = format!(
                     "[{}]  {} (user: {})",
                     snapshot.hash,
-                    first_line_only(snapshot.message()),
-                    snapshot.author()
+                    first_line_only(&snapshot.message),
+                    snapshot.author
                 );
 
                 if repo.current_hash == snapshot.hash {
@@ -108,8 +104,6 @@ pub fn parse(args: Args) -> Result<()> {
             }
 
             Format::Long => {
-                // TODO: if the attributes were changed, maybe mention that here?
-                
                 let line = format!("Hash: {:?}", snapshot.hash);
 
                 if repo.current_hash == snapshot.hash {
@@ -119,9 +113,14 @@ pub fn parse(args: Args) -> Result<()> {
                     println!("{line}");
                 }
 
-                println!("Message: {}", first_line_only(snapshot.message()));
-                println!("Author: {}", snapshot.author());
-                println!("Timestamp: {}", snapshot.timestamp());
+                let author = repo.users
+                    .get_user_by_pub_key(snapshot.author)
+                    .map(|u| u.name.as_str())
+                    .unwrap_or("<unknown user>");
+
+                println!("Message: {}", first_line_only(&snapshot.message));
+                println!("Author: {}", author);
+                println!("Timestamp: {}", snapshot.timestamp);
                 println!();
             }
         }

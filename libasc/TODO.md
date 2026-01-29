@@ -8,3 +8,7 @@
   - Can be used to enforce things like branch protection
 
 - Add repository-level config and user-level config, customising things like default branch name
+
+- Add content validation in pulling
+
+- Add partial pull/push operations so that repositories are not left in a corrupt state if the operation fails

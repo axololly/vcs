@@ -1,6 +1,6 @@
 use crate::{hash::ObjectHash, hash::RawObjectHash, unwrap};
 
-use std::{fmt, fs::{self, File}, io::Write, path::{Path, PathBuf}, process::Command};
+use std::{fs::{self, File}, io::Write, path::{Path, PathBuf}, process::Command};
 
 use eyre::{Context, Result, bail, eyre};
 use glob::glob;
@@ -186,22 +186,22 @@ pub fn save_as_msgpack<T: Serialize>(data: &T, path: impl AsRef<Path>) -> Result
     Ok(())
 }
 
-struct _Display<T>(pub T)
-where
-    T: fmt::Display;
+// struct _Display<T>(pub T)
+// where
+//     T: fmt::Display;
 
-pub struct DisplaySeq<'a, T>(pub &'a [T])
-where
-    T: fmt::Display;
+// pub struct DisplaySeq<'a, T>(pub &'a [T])
+// where
+//     T: fmt::Display;
 
-impl<T: fmt::Display> fmt::Debug for _Display<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
+// impl<T: fmt::Display> fmt::Debug for _Display<T> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         fmt::Display::fmt(&self.0, f)
+//     }
+// }
 
-impl<T: fmt::Display> fmt::Debug for DisplaySeq<'_, T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list().entries(self.0.iter().map(_Display)).finish()
-    }
-}
+// impl<T: fmt::Display> fmt::Debug for DisplaySeq<'_, T> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         f.debug_list().entries(self.0.iter().map(_Display)).finish()
+//     }
+// }

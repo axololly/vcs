@@ -51,7 +51,7 @@ impl Content {
             },
 
             Self::Delta(delta) => {
-                let original = repo.fetch_string_content(delta.original)?;
+                let original = repo.fetch_content_object(delta.original)?;
 
                 let source = original.resolve(repo)?;
 

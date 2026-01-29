@@ -2,21 +2,13 @@ use derive_more::Display;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{hash::ObjectHash, key::PublicKey, utils::DisplaySeq};
+use crate::{hash::ObjectHash, key::PublicKey};
 
 /// Represents an action made on the repository.
 /// 
 /// These are (currently) all reversible.
 #[derive(Clone, Debug, Display, Deserialize, Serialize, PartialEq)]
 pub enum Action {
-    // Snapshots
-    #[display("Rebased snapshot {hash} from {:?} to {:?}", DisplaySeq(from), DisplaySeq(to))]
-    RebaseSnapshot {
-        hash: ObjectHash,
-        from: Vec<ObjectHash>,
-        to: Vec<ObjectHash>
-    },
-
     // Branches
     #[display("Created branch {name:?} pointing to {hash}")]
     CreateBranch {
@@ -27,6 +19,12 @@ pub enum Action {
     DeleteBranch {
         name: String,
         hash: ObjectHash
+    },
+    #[display("Moved branch {name:?} from {old} to {new}")]
+    MoveBranch {
+        name: String,
+        old: ObjectHash,
+        new: ObjectHash
     },
     #[display("Renamed branch {old} to {new} ({hash})")]
     RenameBranch {
@@ -90,7 +88,7 @@ pub enum Action {
 }
 
 /// A stack of [`Action`] enum members with undo and redo capabilities.
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 pub struct ActionHistory {
     inner: Vec<Action>,
     index: usize

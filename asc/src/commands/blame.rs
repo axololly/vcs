@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthStr;
 
 use libasc::{hash::ObjectHash, repository::Repository, unwrap};
 
-// TODO: maybe write your own version?
+// TODO: write your own
 use blame_rs::{BlameRevision, blame};
 
 #[derive(A)]
@@ -46,9 +46,16 @@ pub fn parse(args: Args) -> Result<()> {
     let mut snapshots: Vec<SnapshotData> = vec![];
 
     while let Some(next) = queue.pop_front() {
-        if next.is_root() {
-            break;
+        let parents = unwrap!(
+            repo.history.get_parents(next),
+            "could not get hash of {next:?} in repository"
+        );
+        
+        if parents.is_empty() {
+            continue;
         }
+
+        queue.extend(parents);
 
         let snapshot = repo.fetch_snapshot(next)?;
 
@@ -56,17 +63,10 @@ pub fn parse(args: Args) -> Result<()> {
 
         snapshots.push(SnapshotData {
             hash: snapshot.hash,
-            author: snapshot.author().to_string(),
-            timestamp: snapshot.timestamp(),
-            content: repo.fetch_string_content(content_hash)?.resolve(&repo)?
+            author: snapshot.author.to_string(),
+            timestamp: snapshot.timestamp,
+            content: repo.fetch_string_content(content_hash)?
         });
-
-        let parents = unwrap!(
-            repo.history.get_parents(next),
-            "could not get hash of {next:?} in repository"
-        );
-        
-        queue.extend(parents);
     }
 
     let mut revisions: Vec<BlameRevision<CommitInfo>> = vec![];

@@ -17,14 +17,14 @@ pub enum TrashStatus {
     Indirect(ObjectHash)
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct Entry {
     pub when: DateTime<Local>,
     pub hash: ObjectHash
 }
 
 /// A rubbish bin meant exclusively for snapshot hashes.
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 pub struct Trash {
     entries: Vec<Entry>
 }

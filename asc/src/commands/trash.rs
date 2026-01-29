@@ -1,7 +1,7 @@
 use clap::Subcommand;
 use eyre::{Result, bail, eyre};
 
-use libasc::{graph::Graph, hash::ObjectHash, repository::Repository, trash::{Entry, TrashStatus}};
+use libasc::{graph::Graph, hash::ObjectHash, repository::Repository, trash::{Entry, TrashStatus}, unwrap};
 
 #[derive(Subcommand)]
 pub enum Subcommands {
@@ -50,11 +50,11 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
     let mut repo = Repository::load()?;
 
     let inverse_links = {
-        let mut graph = Graph::empty();
+        let mut graph = Graph::new();
 
         for (hash, parents) in repo.history.iter() {
             for &parent in parents {
-                graph.insert(hash, parent)?;
+                graph.insert(hash, parent);
             }
         }
 
@@ -67,7 +67,12 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
         Add { version } => {
             let hash = repo.normalise_hash(&version)?;
 
-            if hash.is_root() {
+            let parents = unwrap!(
+                repo.history.get_parents(hash),
+                "failed to get parents of hash {hash:?}"
+            );
+
+            if parents.is_empty() {
                 bail!("cannot trash the root snapshot.");
             }
 
@@ -100,19 +105,29 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                     tag_list += &format!(" * {name} -> {hash}\n");
                 }
 
-                let tag_names: Vec<&str> = tags_to_remove
+                let tag_names: Vec<_> = tags_to_remove
                     .iter()
                     .map(|(name, _)| *name)
                     .collect();
 
-                bail!("trashing this snapshot and its children involves trashing snapshots that have been tagged.\n\n{tag_list}\nTo resolve this, run `asc tag delete {}` to delete the offending tags.", tag_names.join(" "));
+                bail!("trashing this snapshot and its children involves trashing snapshots that have been tagged: {tag_list}\n\nTo resolve this, run `asc tag delete {}` to delete the offending tags.", tag_names.join(", "));
             }
 
             repo.trash.add(hash);
 
             if repo.history.is_descendant(repo.current_hash, hash)? {
                 if repo.has_unsaved_changes()? {
-                    bail!("by trashing {hash}, the HEAD at {} would also be trashed.\n\nNormally, this would move the HEAD back to one of the parents of {hash} to move the HEAD out of the trash. However, there are unsaved changes which would be lost.\n\nTo save these, stash them or introduce a new commit to the repository.", repo.current_hash)
+                    let pretty_hash = repo
+                        .branch_from_hash(hash)
+                        .map(String::from)
+                        .unwrap_or(format!("{hash}"));
+
+                    let pretty_current = repo
+                        .current_branch()
+                        .map(String::from)
+                        .unwrap_or(format!("{}", repo.current_hash));
+                    
+                    bail!("by trashing {pretty_hash}, the HEAD at {pretty_current} would also be trashed. Normally, this would move the HEAD back to one of the parents of {pretty_hash} to move the HEAD out of the trash. However, there are unsaved changes which would be lost. To save these, stash them or introduce a new commit to the repository.")
                 }
 
                 let parents = repo.history.get_parents(hash).unwrap();

@@ -34,7 +34,7 @@ pub fn parse(args: Args) -> Result<()> {
                 bail!("no such path in snapshot {snapshot_hash}: {}", path.display());
             };
         
-            repo.fetch_string_content(content_hash)?.resolve(&repo)?
+            repo.fetch_string_content(content_hash)?
         }
         else if !repo.staged_files.contains(path) {
             bail!("path {} is not found in the staging area.", path.display());

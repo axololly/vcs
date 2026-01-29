@@ -84,7 +84,7 @@ impl TryFrom<String> for Permissions {
 }
 
 /// Represents a user account in the repository.
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct User {
     pub name: String,
     pub permissions: Permissions,
@@ -117,7 +117,7 @@ impl User {
 }
 
 /// A collection of users for a repository.
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 pub struct Users {
     inner: HashMap<PublicKey, User>,
 }
@@ -151,12 +151,38 @@ impl Users {
         Ok(self.inner.get_mut(&key).unwrap())
     }
 
+    /// Add a user to the repository.
+    /// 
+    /// This is usually done when the private keys are not stored locally,
+    /// like when the user account is received from a remote.
+    pub fn add_user(
+        &mut self,
+        name: String,
+        permissions: Permissions,
+        public_key: PublicKey,
+        private_key: Option<PrivateKey>
+    ) -> Result<&mut User>
+    {
+        let user = User {
+            name,
+            permissions,
+            public_key,
+            private_key,
+            closed: true
+        };
+
+        self.inner.insert(public_key, user);
+
+        Ok(self.inner.get_mut(&public_key).unwrap())
+    }
+
     /// Create a new [`User`] for the repository with a given set of permissions.
     pub fn create_user_with_permissions(
         &mut self,
         username: String,
         permissions: Permissions,
-    ) -> Result<&mut User> {
+    ) -> Result<&mut User>
+    {
         let user = self.create_user(username)?;
 
         user.permissions = permissions;
@@ -206,5 +232,16 @@ impl Users {
     /// Check if no users are in the repository.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+}
+
+impl From<Vec<User>> for Users {
+    fn from(value: Vec<User>) -> Self {
+        let inner = value
+            .into_iter()
+            .map(|u| (u.public_key, u))
+            .collect();
+
+        Users { inner }
     }
 }

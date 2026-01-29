@@ -20,6 +20,16 @@ pub enum Subcommands {
         basis: Option<String>
     },
 
+    /// Move a branch to point to another commit.
+    #[command(visible_alias = "mv")]
+    Move {
+        /// The name of the branch.
+        name: String,
+        
+        /// Where to next point it to.
+        new: String
+    },
+
     /// Delete a branch.
     #[command(visible_aliases = ["rm", "remove"])]
     Delete {
@@ -68,7 +78,7 @@ pub fn parse(command: Subcommands) -> Result<()> {
                 repo.current_hash
             };
             
-            if repo.branches.contains_key(&name) {
+            if repo.branches.contains(&name) {
                 bail!("branch {name:?} already exists.");
             }
 
@@ -79,12 +89,30 @@ pub fn parse(command: Subcommands) -> Result<()> {
                 println!("Created new branch: {name} -> {base_version}");
             }
 
-            repo.branches.insert(name.clone(), base_version);
+            repo.branches.create(name.clone(), base_version);
 
             repo.action_history.push(
                 Action::CreateBranch {
                     hash: repo.current_hash,
                     name
+                }
+            );
+        }
+
+        Move { name, new } => {
+            let version = repo.normalise_version(&new)?;
+
+            let Some(previous) = repo.branches.remove(&name) else {
+                bail!("branch {new:?} does not exist in this repository.");
+            };
+
+            repo.branches.create(name.clone(), version);
+
+            repo.action_history.push(
+                Action::MoveBranch {
+                    name,
+                    old: previous,
+                    new: version
                 }
             );
         }
@@ -97,7 +125,7 @@ pub fn parse(command: Subcommands) -> Result<()> {
 
             println!("Renamed: {old} -> {new}");
 
-            repo.branches.insert(new.clone(), commit_hash);
+            repo.branches.create(new.clone(), commit_hash);
 
             repo.action_history.push(
                 Action::RenameBranch {
@@ -128,7 +156,7 @@ pub fn parse(command: Subcommands) -> Result<()> {
                 println!("{}", format!(" * HEAD detached at {}", repo.current_hash).bright_green());
             }
 
-            for (branch_name, &commit_hash) in &repo.branches {
+            for (branch_name, &commit_hash) in repo.branches.iter() {
                 let mut s = format!(" * {branch_name}");
 
                 if verbose {

@@ -8,12 +8,11 @@ mod commit;
 mod diff;
 mod history;
 mod init;
+mod log;
+mod ls;
 mod merge;
 mod modify;
 mod mv;
-mod ls;
-mod log;
-mod rebase;
 mod redo;
 mod remove;
 mod stash;
@@ -95,7 +94,7 @@ pub enum Commands {
 
     /// Merge another branch's tip with the current snapshot.
     Merge(merge::Args),
-    
+
     /// Remove snapshots from the repository.
     #[command(subcommand)]
     Trash(trash::Subcommands),
@@ -103,9 +102,6 @@ pub enum Commands {
     /// Modify snapshots in the repository.
     #[command(visible_aliases = ["mod", "edit"])]
     Modify(modify::Args),
-
-    /// Change the parent of a snapshot in the repository.
-    Rebase(rebase::Args),
 
     /// See which user in the repository modified each line in a file.
     Blame(blame::Args),
@@ -146,9 +142,8 @@ pub fn run() -> eyre::Result<()> {
         Merge(args) => merge::parse(args),
         Trash(subcommand) => trash::parse(subcommand),
         Modify(args) => modify::parse(args),
-        Rebase(args) => rebase::parse(args),
         Blame(args) => blame::parse(args),
         Tag(subcommand) => tag::parse(subcommand),
-        User(subcommand) => user::parse(subcommand)
+        User(subcommand) => user::parse(subcommand),
     }
 }
