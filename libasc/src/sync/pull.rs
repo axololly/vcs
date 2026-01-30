@@ -5,9 +5,9 @@ use rateless_tables::{Decoder, Encoder, Symbol};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt as Read, AsyncWriteExt as Write};
 
-use crate::{action::Action, content::Content, graph::Graph, hash::{ObjectHash, RawObjectHash}, repository::{NamedHashes, Repository}, snapshot::Snapshot, sync::{stream::Stream, utils::{dfs_get, handle_login, login_as, BranchResponse, Object, Repo, SendState, DONE, PENDING}}, unwrap, user::User};
+use crate::{action::Action, content::Content, graph::Graph, hash::{ObjectHash, RawObjectHash}, repository::{NamedHashes, Repository}, snapshot::Snapshot, sync::{stream::Stream, utils::{dfs_get, handle_login, login_as, Object, Repo, SendState, DONE, PENDING}}, unwrap, user::User};
 
-async fn client_fetch_objects(
+pub async fn client_fetch_objects(
     stream: &mut impl Stream,
     repo: &Repository
 ) -> Result<HashMap<ObjectHash, Object>>
@@ -64,7 +64,7 @@ async fn client_fetch_objects(
     Ok(contents)
 }
 
-async fn server_serve_content(
+pub async fn server_serve_objects(
     stream: &mut impl Stream,
     repo: &Repository
 ) -> Result<()>
@@ -131,16 +131,14 @@ pub async fn client_pull_one_branch(
 
     stream.send(&(branch, local_tip)).await?;
 
-    let branch_response: BranchResponse = stream.receive().await?;
+    let remote_tip_if_any: Option<ObjectHash> = stream.receive().await?;
 
-    match branch_response {
-        BranchResponse::HasBranch(remote_tip) => {
-            if local_tip == remote_tip {
-                return Ok(BranchPullResult::UpToDate);
-            }
-        }
-        
-        _ => return Ok(BranchPullResult::NotOnRemote)
+    let Some(remote_tip) = remote_tip_if_any else {
+        return Ok(BranchPullResult::NotOnRemote);
+    };
+
+    if local_tip == remote_tip {
+        return Ok(BranchPullResult::UpToDate);
     }
 
     let mut branch = Graph::new();
@@ -333,12 +331,12 @@ pub async fn handle_pull_as_server(
         let (branch_name, client_tip): (String, ObjectHash) = stream.receive().await?;
     
         let Some(server_tip) = repo.branches.get(&branch_name) else {
-            stream.send(&BranchResponse::DoesntHaveBranch).await?;
+            stream.send(&None::<()>).await?;
 
             continue;
         };
 
-        stream.send(&BranchResponse::HasBranch(server_tip)).await?;
+        stream.send(&Some(server_tip)).await?;
 
         if client_tip == server_tip {
             continue;
@@ -403,7 +401,7 @@ pub async fn handle_pull_as_server(
 
     stream.send(&new_tags).await?;
 
-    server_serve_content(stream, &repo).await?;
+    server_serve_objects(stream, &repo).await?;
 
     Ok(())
 }

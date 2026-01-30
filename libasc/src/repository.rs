@@ -192,8 +192,6 @@ impl Repository {
     fn append_snapshot_internal(&mut self, snapshot: Snapshot, branch_name: Option<String>) -> Result<()> {
         let hash = snapshot.hash;
 
-        self.history.insert(hash, self.current_hash);
-
         if let Some(name) = branch_name {
             self.branches.create(name, hash);
         }
@@ -793,6 +791,10 @@ impl Repository {
     pub fn save_snapshot(&mut self, mut snapshot: Snapshot) -> Result<()> {
         snapshot.rehash();
 
+        for &parent in &snapshot.parents {
+            self.history.insert(snapshot.hash, parent);
+        }
+
         let path = self.hash_to_path(snapshot.hash);
 
         let user = unwrap!(
@@ -1004,6 +1006,7 @@ impl Repository {
     /// * the commit history is intact
     /// * all commit signatures are valid
     /// * all commit parents are correct
+    /// * all content is present
     /// 
     /// This only considers reachable commits.
     pub fn validate_history(&self) -> Result<()> {
@@ -1030,6 +1033,10 @@ impl Repository {
             }
 
             snapshot.verify()?;
+
+            for hash in snapshot.files.into_values() {
+                self.fetch_content_object(hash)?;
+            }
 
             queue.extend(parents);
         }

@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, hash::{DefaultHasher, Hasher}, sync::Arc};
+use std::{collections::{HashMap, HashSet, VecDeque}, hash::{DefaultHasher, Hasher}, sync::Arc};
 
 use eyre::{Result, bail, eyre};
 use rand::random;
@@ -111,10 +111,4 @@ pub const DONE: SendState<()> = SendState::Done(());
 pub enum Object {
     Commit(Box<Snapshot>),
     Content(Content)
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub enum BranchResponse {
-    HasBranch(ObjectHash),
-    DoesntHaveBranch
 }
