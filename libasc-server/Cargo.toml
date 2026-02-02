@@ -1,0 +1,8 @@
+[package]
+name = "libasc-server"
+description = "Remote agent to handle server-side connections"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libasc = { path = "../libasc" }

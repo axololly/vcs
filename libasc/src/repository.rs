@@ -1,6 +1,6 @@
 use std::{collections::{BTreeMap, HashMap, HashSet, VecDeque}, env::current_dir, fs, io::Write, path::{Path, PathBuf}, sync::{Arc, RwLock}};
 
-use crate::{action::{Action, ActionHistory}, change::FileChange, compress_data, content::{Content, Delta}, create_file, graph::Graph, hash::ObjectHash, hash_raw_bytes, key::PublicKey, open_file, remove_path, save_as_msgpack, set, snapshot::Snapshot, stash::Stash, trash::{Entry, Trash, TrashStatus}, unwrap, user::{Permissions, User, Users}};
+use crate::{action::{Action, ActionHistory}, change::FileChange, compress_data, content::{Content, Delta}, create_file, graph::Graph, hash::ObjectHash, hash_raw_bytes, key::PublicKey, open_file, remove_path, save_as_msgpack, set, snapshot::Snapshot, stash::Stash, trash::{Entry, Trash, TrashStatus}, unwrap, user::{User, Users}};
 
 use chrono::Utc;
 use expand_tilde::ExpandTilde;
@@ -99,7 +99,9 @@ impl Repository {
     pub fn current_user(&self) -> Option<&User> {
         let lock = self.current_user.read().unwrap();
 
-        let user = self.users.get_user_by_pub_key((*lock)?)?;
+        let key = (*lock)?;
+
+        let user = self.users.get_user(&key)?;
 
         if user.closed || user.private_key.is_none() {
             let mut lock = self.current_user.write().unwrap();
@@ -121,9 +123,11 @@ impl Repository {
     /// - the user has no associated private key
     /// - the user's account is marked as closed
     pub fn current_user_mut(&mut self) -> Option<&mut User> {
-        let key = self.current_user.read().unwrap();
+        let lock = self.current_user.read().unwrap();
 
-        let user = self.users.get_user_mut_by_pub_key((*key)?)?;
+        let key = (*lock)?;
+
+        let user = self.users.get_user_mut(&key)?;
 
         if user.closed || user.private_key.is_none() {
             let mut lock = self.current_user.write().unwrap();
@@ -306,7 +310,7 @@ impl Repository {
 
             CloseAccount { id, .. } => {
                 let user = unwrap!(
-                    self.users.get_user_mut_by_pub_key(id),
+                    self.users.get_user_mut(&id),
                     "no user account with public key {id}"
                 );
 
@@ -315,7 +319,7 @@ impl Repository {
 
             OpenAccount { id, .. } => {
                 let user = unwrap!(
-                    self.users.get_user_mut_by_pub_key(id),
+                    self.users.get_user_mut(&id),
                     "no user account with public key {id}"
                 );
 
@@ -324,7 +328,7 @@ impl Repository {
 
             RenameAccount { new, id, .. } => {
                 let user = unwrap!(
-                    self.users.get_user_mut_by_pub_key(id),
+                    self.users.get_user_mut(&id),
                     "no user account with public key {id}"
                 );
 
@@ -497,15 +501,18 @@ impl Repository {
         
         let mut users = Users::new();
 
-        let first_user = users.create_user_with_permissions(
-            author.clone(),
-            Permissions::all()
-        )?;
+        let first_user = {
+            let user = users.create_user(author.clone())?;
+
+            user.private_key.clone().unwrap()
+        };
+
+        let current_user = Arc::new(RwLock::new(Some(first_user.public_key())));
 
         let mut history = Graph::new();
 
         let root_snapshot = Snapshot::new(
-            first_user.private_key.clone().unwrap(),
+            first_user,
             "initial snapshot".to_string(),
             Utc::now(),
             BTreeMap::new(),
@@ -527,7 +534,7 @@ impl Repository {
             history,
             branches,
             current_hash: root_snapshot.hash,
-            current_user: Arc::new(RwLock::new(Some(first_user.public_key))),
+            current_user,
             staged_files: vec![],
             stash: Stash::new(),
             trash: Trash::new(),
@@ -795,18 +802,13 @@ impl Repository {
             self.history.insert(snapshot.hash, parent);
         }
 
+        if self.users.get_user(&snapshot.signature.key()).is_none()  {
+            bail!("snapshot is authored by an unknown user.");
+        }
+
+        snapshot.verify()?;
+
         let path = self.hash_to_path(snapshot.hash);
-
-        let user = unwrap!(
-            self.current_user(),
-            "cannot save snapshot under current user"
-        );
-
-        unwrap!(
-            user.private_key.clone(),
-            "cannot save a snapshot under user {:?} (no private key)",
-            user.name
-        );
 
         save_as_msgpack(&snapshot, path)
     }
@@ -1005,6 +1007,7 @@ impl Repository {
     /// 
     /// * the commit history is intact
     /// * all commit signatures are valid
+    /// * all commit authors are valid users
     /// * all commit parents are correct
     /// * all content is present
     /// 
@@ -1028,7 +1031,7 @@ impl Repository {
 
             let author = snapshot.signature.key();
 
-            if self.users.get_user_by_pub_key(author).is_none() {
+            if self.users.get_user(&author).is_none() {
                 bail!("snapshot {current} was created by an unknown user (key {author} matches no user)");
             }
 

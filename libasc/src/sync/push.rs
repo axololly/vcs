@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use eyre::{bail, eyre, Result};
+use eyre::Result;
 use rateless_tables::{Decoder, Encoder};
 use serde::{Deserialize, Serialize};
 
@@ -115,7 +115,7 @@ pub async fn handle_push_as_client(
     repo: Repo
 ) -> Result<Vec<PushResult>>
 {
-    let mut repo = repo.lock().await;
+    let repo = repo.lock().await;
 
     let user = unwrap!(
         repo.current_user(),
@@ -154,12 +154,8 @@ pub async fn handle_push_as_server(
 {
     let mut repo = repo.lock().await;
 
-    let check = |user: &User| {
-        user.permissions
-            .can_push()
-            .then_some(())
-            .ok_or(format!("user {:?} does not have permission to push", user.name))
-    };
+    // TODO: implement hooks
+    let check = |_: &User| Ok(());
 
     handle_login(&repo, stream, check).await?;
 

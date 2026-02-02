@@ -114,7 +114,7 @@ pub fn parse(args: Args) -> Result<()> {
                 }
 
                 let author = repo.users
-                    .get_user_by_pub_key(snapshot.author)
+                    .get_user(&snapshot.author)
                     .map(|u| u.name.as_str())
                     .unwrap_or("<unknown user>");
 

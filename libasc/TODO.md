@@ -12,3 +12,9 @@
 - Add content validation in pulling
 
 - Add partial pull/push operations so that repositories are not left in a corrupt state if the operation fails
+
+- Implement hooks for the push-pull cycle and across the repository
+
+- Add bare repositories, probably by equating `main_dir` and `root_dir`
+
+- Add storing SSH URLs as remotes

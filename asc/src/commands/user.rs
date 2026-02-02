@@ -2,7 +2,7 @@ use clap::Subcommand;
 use color_eyre::owo_colors::OwoColorize;
 use eyre::{bail, Result};
 
-use libasc::{repository::Repository, unwrap, user};
+use libasc::{repository::Repository, unwrap};
 
 // TODO: include more subcommands for things like closing and reopening user accounts
 #[derive(Subcommand)]
@@ -12,8 +12,7 @@ pub enum Subcommands {
     /// of the `everyone` user.
     #[command(visible_alias = "new")]
     Create {
-        username: String,
-        permissions: Option<String>
+        username: String
     },
 
     /// List all users in the repository.
@@ -23,13 +22,6 @@ pub enum Subcommands {
     /// Get or set which user the repository is using for commits.
     Current {
         username: Option<String>
-    },
-
-    /// Get or set the permissions of a user in the repository.
-    #[command(visible_alias = "perms")]
-    Permissions {
-        username: String,
-        permissions: Option<String>
     },
 
     /// List information about the given user.
@@ -64,19 +56,8 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
     use Subcommands::*;
     
     match subcommand {
-        Create { username, permissions } => {
-            if repo.users.get_user(&username).is_some() {
-                bail!("the user {username:?} already exists in the repository.");
-            }
-
-            let perms = match permissions {
-                Some(raw) => user::Permissions::try_from(raw)?,
-                None => user::Permissions::empty()
-            };
-
+        Create { username } => {
             let user = repo.users.create_user(username)?;
-
-            user.permissions = perms;
 
             println!("Successfully created user {:?}.", user.name);
         },
@@ -104,7 +85,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
         Info { username, show_private_key } => {
             let user = if let Some(name) = username {
                 unwrap!(
-                    repo.users.get_user(&name),
+                    repo.users.get_user(name.as_str()),
                     "no user with name {name:?} in this repository."
                 )
             }
@@ -123,7 +104,6 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             };
 
             println!("Name: {name}");
-            println!("Permissions: {}", user.permissions);
             println!("Public key: {}", user.public_key);
             
             if show_private_key {
@@ -179,35 +159,6 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             else {
                 bail!("no valid user is set in this repository.");
             }
-        },
-
-        Permissions { username, permissions } => {
-            let Some(perms) = permissions else {
-                if let Some(user) = repo.current_user() {
-                    println!("{}", user.permissions);
-                }
-                else {
-                    bail!("no valid user is set in this repository.");
-                }
-
-                return Ok(());
-            };
-
-            let new_perms = user::Permissions::try_from(perms)?;
-
-            let Some(user) = repo.users.get_user_mut(&username) else {
-                bail!("the user {username:?} does not exist in the repository.");
-            };
-
-            let original_perms = user.permissions;
-
-            user.permissions = new_perms;
-
-            println!(
-                "Changed permissions of {username:?}: {} -> {}",
-                original_perms,
-                new_perms
-            );
         },
 
         Rename { old, new } => {

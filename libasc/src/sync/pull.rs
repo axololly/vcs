@@ -1,11 +1,9 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, hash::{self, DefaultHasher, Hasher}};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use eyre::{Result, bail, eyre};
-use rateless_tables::{Decoder, Encoder, Symbol};
-use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt as Read, AsyncWriteExt as Write};
+use eyre::{Result, eyre};
+use rateless_tables::{Decoder, Encoder};
 
-use crate::{action::Action, content::Content, graph::Graph, hash::{ObjectHash, RawObjectHash}, repository::{NamedHashes, Repository}, snapshot::Snapshot, sync::{stream::Stream, utils::{dfs_get, handle_login, login_as, Object, Repo, SendState, DONE, PENDING}}, unwrap, user::User};
+use crate::{action::Action, content::Content, graph::Graph, hash::ObjectHash, repository::{NamedHashes, Repository}, sync::{stream::Stream, utils::{dfs_get, handle_login, login_as, Object, Repo, SendState, DONE, PENDING}}, unwrap, user::User};
 
 pub async fn client_fetch_objects(
     stream: &mut impl Stream,
@@ -294,7 +292,7 @@ pub async fn handle_pull_as_client(
         pull_results.push(PullResult::Tag(name, tag_result));
     }
 
-    let mut new_objects = client_fetch_objects(stream, &repo).await?;
+    let new_objects = client_fetch_objects(stream, &repo).await?;
 
     for (hash, object) in new_objects {
         match object {
@@ -302,6 +300,8 @@ pub async fn handle_pull_as_client(
             Object::Content(content) => repo.save_content_object(content, hash)?
         }
     }
+
+    repo.save()?;
     
     Ok(pull_results)
 }
@@ -310,14 +310,10 @@ pub async fn handle_pull_as_server(
     stream: &mut impl Stream,
     repo: Repo
 ) -> Result<()> {
-    let mut repo = repo.lock().await;
+    let repo = repo.lock().await;
 
-    let check = |user: &User| {
-        user.permissions
-            .can_pull()
-            .then_some(())
-            .ok_or(format!("user {:?} does not have permission to pull", user.name))
-    };
+    // TODO: implement hooks
+    let check = |_: &User| Ok(());
 
     handle_login(&repo, stream, check).await?;
 

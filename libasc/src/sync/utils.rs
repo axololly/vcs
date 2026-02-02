@@ -1,16 +1,27 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, hash::{DefaultHasher, Hasher}, sync::Arc};
+use std::sync::Arc;
 
 use eyre::{Result, bail, eyre};
 use rand::random;
-use rateless_tables::Symbol;
 use serde::{Deserialize, Serialize};
-use tokio::{io::{AsyncReadExt as Read, AsyncWriteExt as Write}, sync::Mutex};
+use tokio::sync::Mutex;
 
 use crate::{content::Content, graph::Graph, hash::ObjectHash, key::Signature, repository::Repository, snapshot::Snapshot, sync::stream::Stream, user::User};
 
 pub type Repo = Arc<Mutex<Repository>>;
 
 pub type ServerSecret = [u8; 32];
+
+pub fn get_server_secret() -> ServerSecret {
+    let mut buf = [0; 32];
+
+    let iter = std::iter::repeat_with(random::<u8>);
+
+    for (i, n) in iter.enumerate().take(32) {
+        buf[i] = n;
+    }
+
+    buf
+}
 
 pub async fn login_as(
     user: &User,
@@ -19,9 +30,9 @@ pub async fn login_as(
 ) -> Result<()> {
     stream.send(&project_code).await?;
 
-    let get_secret: Result<ServerSecret, ()> = stream.receive().await?;
+    let get_secret: Option<ServerSecret> = stream.receive().await?;
 
-    let Ok(secret) = get_secret else {
+    let Some(secret) = get_secret else {
         bail!("project codes do not match");
     };
 
@@ -44,30 +55,18 @@ pub async fn handle_login(
 {
     let client_project_code: ObjectHash = stream.receive().await?;
 
-    if repo.project_code != client_project_code {
-        let error: Result<ServerSecret, ()> = Err(());
-
-        return stream.send(&error).await;
-    }
-
-    let secret: Result<ServerSecret, ()> = {
-        let mut buf = [0; 32];
-
-        let mut iter = std::iter::repeat_with(random::<u8>);
-
-        for (i, n) in iter.enumerate().take(32) {
-            buf[i] = n;
-        }
-
-        Ok(buf)
-    };
+    let secret = (repo.project_code == client_project_code).then(get_server_secret);
 
     stream.send(&secret).await?;
+
+    if secret.is_none() {
+        return Ok(());
+    }
 
     let login: Signature = stream.receive().await?;
 
     let result: Result<(), String> = if login.verify(&secret.unwrap()) {
-        match repo.users.get_user_by_pub_key(login.key()) {
+        match repo.users.get_user(&login.key()) {
             Some(user) => validate_user(user),
             None => Err("user does not exist".to_string())
         }
