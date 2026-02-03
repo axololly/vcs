@@ -618,7 +618,7 @@ impl Repository {
 
     /// Save the current state of the repository to disk.
     pub fn save(&self) -> Result<()> {
-        self.validate_history()?;
+        self.validate_state()?;
         
         let current_user = *self.current_user.read().unwrap();
 
@@ -1010,9 +1010,10 @@ impl Repository {
     /// * all commit authors are valid users
     /// * all commit parents are correct
     /// * all content is present
+    /// * all branch pointers and tags are valid
     /// 
     /// This only considers reachable commits.
-    pub fn validate_history(&self) -> Result<()> {
+    pub fn validate_state(&self) -> Result<()> {
         let mut queue = VecDeque::new();
 
         queue.extend(self.branches.hashes());
@@ -1042,6 +1043,12 @@ impl Repository {
             }
 
             queue.extend(parents);
+        }
+
+        for (name, &hash) in self.tags.iter() {
+            if !self.history.contains(hash) {
+                bail!("tag {name:?} points to an unrecorded ({hash:?})");
+            }
         }
 
         Ok(())

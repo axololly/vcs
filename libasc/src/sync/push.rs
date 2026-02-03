@@ -257,6 +257,8 @@ pub async fn handle_push_as_server(
     }
 
     stream.send(&tag_results).await?;
+    
+    // TODO: validate that the server has no missing content
 
     repo.save()?;
 
