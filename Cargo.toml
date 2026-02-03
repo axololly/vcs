@@ -3,6 +3,6 @@ resolver = "2"
 members = [
     "libasc",
     "asc-server",
-    # "asc-shell"
+    "asc-shell"
     # "asc"
 ]

@@ -1,8 +1,9 @@
 use std::{fs, sync::Arc};
 
 use chrono::Utc;
+use directories::BaseDirs;
 use eyre::Result;
-use libasc::{repository::Repository, sync::{entry::handle_server, stream::StdinStdout}};
+use libasc::{repository::Repository, sync::{server::handle_server, stream::StdinStdout}};
 use tokio::sync::Mutex;
 
 async fn run() -> Result<()> {
@@ -26,8 +27,18 @@ async fn main() {
             let _ = now.split_off(i);
         }
 
+        let name = format!("asc-server-{}", now);
+
+        let Some(dirs) = BaseDirs::new() else {
+            eprintln!("Failed to identify user directories through `directories` crate.");
+
+            return;
+        };
+
+        let log_path = dirs.config_dir().join(name);
+
         let _ = fs::write(
-            format!("/var/tmp/asc-server-{}", now),
+            log_path,
             format!("{e:?}")
         );
     }

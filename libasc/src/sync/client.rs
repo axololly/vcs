@@ -5,7 +5,7 @@ use eyre::Result;
 use tokio::sync::{Mutex, mpsc::channel};
 use url_parse::core::Parser;
 
-use crate::{key::PrivateKey, repository::Repository, sync::{clone::handle_clone_as_client, entry::Method, pull::{PullResult, handle_pull_as_client}, push::{PushResult, handle_push_as_client}, stream::{SshStream, Stream}}};
+use crate::{key::PrivateKey, repository::Repository, sync::{clone::handle_clone_as_client, server::Method, pull::{PullResult, handle_pull_as_client}, push::{PushResult, handle_push_as_client}, stream::{SshStream, Stream}}};
 
 type Repo = Arc<Mutex<Repository>>;
 
