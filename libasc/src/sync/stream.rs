@@ -3,7 +3,7 @@ use std::io;
 use async_trait::async_trait;
 use eyre::Result;
 use serde::{Serialize, de::DeserializeOwned};
-use tokio::{io::{AsyncReadExt as Read, AsyncWriteExt as Write, ReadHalf, SimplexStream, Stdin, Stdout, WriteHalf, simplex, stdin, stdout}, sync::mpsc::{Receiver, Sender}};
+use tokio::{io::{AsyncReadExt as Read, AsyncWriteExt as Write, ReadHalf, SimplexStream, Stdin, Stdout, WriteHalf, simplex, stdin, stdout}, process::{ChildStdin, ChildStdout}};
 
 #[async_trait]
 pub trait Stream: Send {
@@ -109,77 +109,36 @@ pub fn local_duplex() -> (LocalStream, LocalStream) {
     (client, server)
 }
 
-pub struct SshStream {
-    reader: Receiver<Vec<u8>>,
-    writer: Sender<Vec<u8>>,
-    read_extra: Vec<u8>,
+pub struct ChildProcessStream {
+    reader: ChildStdout,
+    writer: ChildStdin
 }
 
-impl SshStream {
-    pub fn new(reader: Receiver<Vec<u8>>, writer: Sender<Vec<u8>>) -> Self {
-        Self {
-            reader,
-            writer,
-            read_extra: vec![]
-        }
+impl ChildProcessStream {
+    pub fn new(reader: ChildStdout, writer: ChildStdin) -> Self {
+        Self { reader, writer }
     }
-}
-
-fn take_n_bytes(data: &mut Vec<u8>, n: usize) -> Vec<u8> {
-    // data holds what we will return, while
-    // after_n holds what we want to keep
-    let mut after_n = data.split_off(n);
-
-    // now data holds what we want to keep and
-    // after_n holds what we want to return
-    std::mem::swap(data, &mut after_n);
-
-    after_n
 }
 
 #[async_trait]
-impl Stream for SshStream {
+impl Stream for ChildProcessStream {
     async fn raw_read(&mut self, n: usize) -> io::Result<Vec<u8>> {
-        let mut bytes = if n < self.read_extra.len() {
-            take_n_bytes(&mut self.read_extra, n)
-        }
-        else {
-            std::mem::take(&mut self.read_extra)
-        };
+        let mut buf = vec![0u8; n];
 
-        while bytes.len() < n {
-            let recv_bytes = self.reader
-                .recv()
-                .await
-                .ok_or(io::Error::new(
-                    io::ErrorKind::ConnectionAborted,
-                    "other side closed the connection",
-                ))?;
+        self.reader.read_exact(&mut buf).await?;
 
-            bytes.extend(recv_bytes);
-        }
-
-        let taken = take_n_bytes(&mut bytes, n);
-
-        self.read_extra = bytes;
-
-        Ok(taken)
+        Ok(buf)
     }
 
     async fn raw_write(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.writer
-            .send(bytes.to_vec())
-            .await
-            .map_err(|_| io::Error::new(
-                io::ErrorKind::ConnectionAborted,
-                "other side closed the connection"
-            ))
+        self.writer.write_all(bytes).await?;
+
+        self.writer.flush().await?;
+
+        Ok(())
     }
 
     async fn close(&mut self) -> io::Result<()> {
-        self.reader.close();
-        self.writer.closed().await;
-
         Ok(())
     }
 }

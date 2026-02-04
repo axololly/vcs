@@ -30,6 +30,7 @@ Categories are as follows:
 - Added `Repository::validate_state` to ensure that all hashes are correct and their order is intact
 - Added more actions like `Action::MoveBranch`
 - Added pulling, pushing and cloning operations, as well as `handle_server` and a dedicated `Client` to connect over SSH
+- Added a dedicated `Remote` type
 
 ### Changed
 
@@ -56,6 +57,7 @@ Categories are as follows:
     - `Repository::fetch_content_object` does what the old `Repository::fetch_string_content` did
 - `Repository::current_username` uses an `Arc<RwLock>` instead of a `RefCell` for `Send + Sync` capabilities
 - `Repository::current_username` holds a `PublicKey` instead of a `String` (usernames can change while keys do not)
+- Renamed `SshStream` to `ChildProcessStream` and removed the `async_ssh2_tokio` dependency
 - Restricted `Repository::fetch_content_object` to crate-only
 - Replaced `Repository::replace_cwd_with_snapshot` with `Repository::replace_cwd_with_files`, because only the `files` of the original `Snapshot` were used
 

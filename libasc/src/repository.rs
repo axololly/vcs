@@ -1,6 +1,6 @@
 use std::{collections::{BTreeMap, HashMap, HashSet, VecDeque}, env::current_dir, fs, io::Write, path::{Path, PathBuf}, sync::{Arc, RwLock}};
 
-use crate::{action::{Action, ActionHistory}, change::FileChange, compress_data, content::{Content, Delta}, create_file, graph::Graph, hash::ObjectHash, hash_raw_bytes, key::PublicKey, open_file, remove_path, save_as_msgpack, set, snapshot::Snapshot, stash::Stash, trash::{Entry, Trash, TrashStatus}, unwrap, user::{User, Users}};
+use crate::{action::{Action, ActionHistory}, change::FileChange, compress_data, content::{Content, Delta}, create_file, graph::Graph, hash::ObjectHash, hash_raw_bytes, key::PublicKey, open_file, remove_path, save_as_msgpack, set, snapshot::Snapshot, stash::Stash, sync::remote::Remote, trash::{Entry, Trash, TrashStatus}, unwrap, user::{User, Users}};
 
 use chrono::Utc;
 use expand_tilde::ExpandTilde;
@@ -68,7 +68,6 @@ impl NamedHashes {
     }
 }
 
-#[derive(Clone)]
 pub struct Repository {
     pub project_name: String,
     pub project_code: ObjectHash,
@@ -83,6 +82,7 @@ pub struct Repository {
     pub trash: Trash,
     pub tags: NamedHashes,
     pub users: Users,
+    pub remotes: Vec<Remote>,
 
     current_user: Arc<RwLock<Option<PublicKey>>>
 }
@@ -441,7 +441,8 @@ pub struct ProjectInfo {
     pub current_user: Option<PublicKey>,
     pub branches: NamedHashes,
     pub current_hash: ObjectHash,
-    pub stash: Stash
+    pub stash: Stash,
+    pub remotes: Vec<Remote>
 }
 
 impl ProjectInfo {
@@ -539,7 +540,8 @@ impl Repository {
             stash: Stash::new(),
             trash: Trash::new(),
             tags: NamedHashes::new(),
-            users
+            users,
+            remotes: vec![]
         };
 
         repo.save_snapshot(root_snapshot)?;
@@ -610,7 +612,8 @@ impl Repository {
             stash: info.stash,
             trash,
             tags,
-            users
+            users,
+            remotes: info.remotes
         };
 
         Ok(repo)
@@ -628,7 +631,8 @@ impl Repository {
             current_user,
             branches: self.branches.clone(),
             current_hash: self.current_hash,
-            stash: self.stash.clone()
+            stash: self.stash.clone(),
+            remotes: self.remotes.clone()
         };
 
         let content_dir = self.root_dir.join(".asc");

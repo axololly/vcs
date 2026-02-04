@@ -1,76 +1,49 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, process::Stdio, sync::Arc};
 
-use async_ssh2_tokio::{AuthMethod, Client as SshClient, ServerCheckMethod};
 use eyre::Result;
-use tokio::sync::{Mutex, mpsc::channel};
-use url_parse::core::Parser;
+use tokio::{process::Command, sync::Mutex};
 
-use crate::{key::PrivateKey, repository::Repository, sync::{clone::handle_clone_as_client, server::Method, pull::{PullResult, handle_pull_as_client}, push::{PushResult, handle_push_as_client}, stream::{SshStream, Stream}}};
+use crate::{key::PrivateKey, repository::Repository, sync::{clone::handle_clone_as_client, pull::{PullResult, handle_pull_as_client}, push::{PushResult, handle_push_as_client}, remote::Remote, server::Method, stream::{ChildProcessStream, Stream}}};
 
 type Repo = Arc<Mutex<Repository>>;
 
 pub struct Client {
-    conn: SshStream
+    conn: ChildProcessStream,
+    remote: Remote
 }
 
 impl Client {
-    pub async fn connect(endpoint: &str) -> Result<Client> {
-        let url = Parser::new(None).parse(endpoint)?;
-        
-        let base_url = {
-            let mut parts: Vec<String> = vec![];
+    pub async fn connect(remote: Remote, ssh_bin_path: Option<&str>) -> Result<Client> {
+        let address = remote.ssh_url();
 
-            if let Some(subdomain) = &url.subdomain {
-                parts.push(subdomain.clone());
-            }
+        let mut ssh = {
+            let mut proc = Command::new(
+                ssh_bin_path.unwrap_or("ssh")
+            );
 
-            if let Some(host_str) = url.host_str() {
-                parts.push(host_str);
-            }
+            proc.args([
+                &address,
+                "asc-server",
+                &remote.path()
+            ]);
 
-            parts.join(".")
+            proc.stdin(Stdio::piped());
+
+            proc.stdout(Stdio::piped());
+
+            proc.spawn()?
         };
 
-        let username = url
-            .username()
-            .unwrap_or("axo".to_string()); // TODO: change to asc
+        let stdin = ssh.stdin.take().unwrap();
+        let stdout = ssh.stdout.take().unwrap();
 
-        let auth = if let Some(password) = url.password() {
-            AuthMethod::Password(password)
-        }
-        else {
-            AuthMethod::Agent
-        };
-
-        let port = url
-            .port_or_known_default()
-            .unwrap_or(22);
-
-        let ssh = SshClient::connect(
-            (base_url.as_str(), port as u16),
-            &username,
-            auth,
-            ServerCheckMethod::DefaultKnownHostsFile
-        ).await?;
-
-        let (stdin_writer, stdin_reader) = channel(1024);
-        let (stdout_writer, stdout_reader) = channel(1024);
+        let conn = ChildProcessStream::new(stdout, stdin);
 
         tokio::spawn(async move {
-            let _ = ssh.execute_io(
-                "cd ~/dev/rust/vcs && ./remote-handler",
-                stdout_writer,
-                None,
-                Some(stdin_reader),
-                false,
-                None,
-            )
-            .await;
+            ssh.wait().await
         });
 
-        let conn = SshStream::new(stdout_reader, stdin_writer);
-
-        Ok(Client { conn })
+        Ok(Client { conn, remote })
     }
 
     pub async fn make_pull(&mut self, repo: Repo) -> Result<Vec<PullResult>> {
@@ -88,6 +61,11 @@ impl Client {
     pub async fn clone_repo(&mut self, repo_path: &Path, user_key: PrivateKey) -> Result<()> {
         self.conn.send(&Method::Clone).await?;
 
-        handle_clone_as_client(&mut self.conn, repo_path, user_key).await
+        handle_clone_as_client(
+            &mut self.conn,
+            self.remote.clone(),
+            repo_path,
+            user_key
+        ).await
     }
 }

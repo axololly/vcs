@@ -1,4 +1,7 @@
-use std::{io::{stdin, IsTerminal, Read}, process::Command};
+use std::{fs, io::{IsTerminal, Read, stdin}, process::Command};
+
+use chrono::Utc;
+use directories::BaseDirs;
 
 const VALID_COMMANDS: [&str; 1] = [
     "asc-server"
@@ -10,6 +13,29 @@ macro_rules! error {
 
         return Ok(());
     }};
+}
+
+fn save_error(error: &eyre::Report) {
+    let mut now = Utc::now().to_string();
+
+    if let Some(i) = now.find('.') {
+        let _ = now.split_off(i);
+    }
+
+    let name = format!("asc-server-{}", now);
+
+    let Some(dirs) = BaseDirs::new() else {
+        eprintln!("Failed to identify user directories through `directories` crate.");
+
+        return;
+    };
+
+    let log_path = dirs.cache_dir().join(name);
+
+    let _ = fs::write(
+        log_path,
+        format!("{error:?}")
+    );
 }
 
 fn main() -> eyre::Result<()> {
@@ -41,9 +67,19 @@ fn main() -> eyre::Result<()> {
 
     cmd.args(&split[1..]);
 
-    let mut child = cmd.spawn()?;
+    let mut result = move || -> eyre::Result<()> {
+        let mut child = cmd.spawn()?;
 
-    child.wait()?;
+        child.wait()?;
+
+        Ok(())
+    };
+
+    if let Err(e) = result() {
+        save_error(&e);
+
+        error!("{e:?}");
+    }
 
     Ok(())
 }

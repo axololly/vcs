@@ -3,11 +3,12 @@ use std::{collections::{HashMap, HashSet, VecDeque}, path::Path};
 use eyre::{Result, eyre};
 use serde_bytes::ByteBuf;
 
-use crate::{compress_data, content::Content, decompress_data, hash::ObjectHash, key::{PrivateKey, Signature}, repository::Repository, sync::{stream::Stream, utils::{Object, Repo, ServerSecret, get_server_secret}}};
+use crate::{compress_data, content::Content, decompress_data, hash::ObjectHash, key::{PrivateKey, Signature}, repository::Repository, sync::{remote::Remote, stream::Stream, utils::{Object, Repo, ServerSecret, get_server_secret}}};
 
 pub async fn handle_clone_as_client(
     stream: &mut impl Stream,
-    repo_path: &Path,
+    remote: Remote,
+    local_repo_path: &Path,
     mut user_key: PrivateKey
 ) -> Result<()>
 {
@@ -22,7 +23,7 @@ pub async fn handle_clone_as_client(
     result.map_err(|message| eyre!("server error: {message}"))?;
 
     let mut repo = Repository::create_new(
-        repo_path,
+        local_repo_path,
         "axo".to_string(),
         "name".to_string()
     )?;
@@ -36,6 +37,8 @@ pub async fn handle_clone_as_client(
     repo.current_hash = stream.receive().await?;
 
     repo.users = stream.receive().await?;
+
+    repo.remotes.push(remote);
 
     let compressed: ByteBuf = stream.receive().await?;
 
