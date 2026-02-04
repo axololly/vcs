@@ -4,8 +4,12 @@
 
 - Add octopus merges to `asc merge`
 
+- Handle criss-cross merges in `asc merge`
+
 - Change primitive `bail!` calls to use `eprintln!` instead
 
 - Add globs to `asc ls`, `asc cat`, `asc branch ls`, `asc tag ls`, etc
 
 - Add commands to interact with stored server remote links
+
+

@@ -27,9 +27,9 @@ Categories are as follows:
 - Added support for tilde paths when opening/loading a repository
 - Added `Graph::invert` for inverting the directions of a graph
 - Added `Graph::extend` to add new connections from a `Graph` to another `Graph`
-- Added `Repository::validate_history` to ensure that all hashes are correct and their order is intact
+- Added `Repository::validate_state` to ensure that all hashes are correct and their order is intact
 - Added more actions like `Action::MoveBranch`
-- Added a pull operation
+- Added pulling, pushing and cloning operations, as well as `handle_server` and a dedicated `Client` to connect over SSH
 
 ### Changed
 
@@ -56,6 +56,8 @@ Categories are as follows:
     - `Repository::fetch_content_object` does what the old `Repository::fetch_string_content` did
 - `Repository::current_username` uses an `Arc<RwLock>` instead of a `RefCell` for `Send + Sync` capabilities
 - `Repository::current_username` holds a `PublicKey` instead of a `String` (usernames can change while keys do not)
+- Restricted `Repository::fetch_content_object` to crate-only
+- Replaced `Repository::replace_cwd_with_snapshot` with `Repository::replace_cwd_with_files`, because only the `files` of the original `Snapshot` were used
 
 ### Fixed
 
@@ -67,3 +69,5 @@ Categories are as follows:
 ### Removed
 
 - Removed `Action::RebaseSnapshot`
+- Removed permissions from `User` structs
+- Removed `Repository::normalise_stash_hash`

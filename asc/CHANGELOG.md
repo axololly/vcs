@@ -26,6 +26,7 @@ Categories are as follows:
 ### Removed
 
 - `asc rebase` is removed until further notice (it's cringe and `merge` is more based)
+- Permissions are not displayed on user accounts
 
 ### Fixed
 
@@ -33,3 +34,4 @@ Categories are as follows:
 - `asc branch` didn't update `Repository::action_history`
 - Fixed display of `asc log`
 - Previously used SHA1 while `libasc` used SHA2
+- `asc modify` rehashes its children like Git does
