@@ -14,6 +14,7 @@ mod merge;
 mod modify;
 mod mv;
 mod redo;
+mod remote;
 mod remove;
 mod stash;
 mod switch;

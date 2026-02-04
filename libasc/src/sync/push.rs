@@ -4,7 +4,7 @@ use eyre::Result;
 use rateless_tables::{Decoder, Encoder};
 use serde::{Deserialize, Serialize};
 
-use crate::{action::Action, graph::Graph, hash::ObjectHash, repository::{NamedHashes, Repository}, sync::{stream::Stream, utils::{dfs_get, handle_login, login_as, Object, Repo, SendState, DONE, PENDING}}, unwrap, user::User};
+use crate::{action::Action, graph::Graph, hash::ObjectHash, repository::{NamedItems, Repository}, sync::{stream::Stream, utils::{dfs_get, handle_login, login_as, Object, Repo, SendState, DONE, PENDING}}, unwrap, user::User};
 
 pub enum BranchPushResult {
     CreatedOnRemote,
@@ -30,9 +30,7 @@ pub async fn client_push_one_branch(
     branch: &str
 ) -> Result<BranchPushResult>
 {
-    let local_tip = repo.branches.get(branch).unwrap();
-
-    println!("pushing {branch} ({local_tip})");
+    let local_tip = *repo.branches.get(branch).unwrap();
 
     stream.send(&(branch, local_tip)).await?;
 
@@ -182,7 +180,7 @@ pub async fn handle_push_as_server(
 
         let mut dec = Decoder::default();
 
-        if let Some(server_tip) = server_tip_if_any {
+        if let Some(&server_tip) = server_tip_if_any {
             dfs_get(&repo.history, server_tip, &mut branch);
         }
 
@@ -236,12 +234,12 @@ pub async fn handle_push_as_server(
         repo.action_history.push(action);
     }
 
-    let client_tags: NamedHashes = stream.receive().await?;
+    let client_tags: NamedItems<ObjectHash> = stream.receive().await?;
 
     let mut tag_results: HashMap<String, TagPushResult> = HashMap::new();
 
     for (name, client_hash) in client_tags.into_iter() {
-        let Some(server_hash) = repo.tags.get(&name) else {
+        let Some(&server_hash) = repo.tags.get(&name) else {
             repo.tags.create(name.to_string(), client_hash);
 
             tag_results.insert(name, TagPushResult::New(client_hash));

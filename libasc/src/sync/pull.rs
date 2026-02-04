@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use eyre::{Result, eyre};
 use rateless_tables::{Decoder, Encoder};
 
-use crate::{action::Action, content::Content, graph::Graph, hash::ObjectHash, repository::{NamedHashes, Repository}, sync::{stream::Stream, utils::{dfs_get, handle_login, login_as, Object, Repo, SendState, DONE, PENDING}}, unwrap, user::User};
+use crate::{action::Action, content::Content, graph::Graph, hash::ObjectHash, repository::{NamedItems, Repository}, sync::{stream::Stream, utils::{dfs_get, handle_login, login_as, Object, Repo, SendState, DONE, PENDING}}, unwrap, user::User};
 
 pub async fn client_fetch_objects(
     stream: &mut impl Stream,
@@ -125,7 +125,7 @@ pub async fn client_pull_one_branch(
     branch: &str
 ) -> Result<BranchPullResult>
 {
-    let local_tip = repo.branches.get(branch).unwrap();
+    let local_tip = *repo.branches.get(branch).unwrap();
 
     stream.send(&(branch, local_tip)).await?;
 
@@ -202,7 +202,7 @@ pub async fn handle_pull_as_client(
             BranchPullResult::FastForward(graph, remote_tip) => {
                 repo.history.extend(graph);
 
-                let old = repo.branches.get(&name).unwrap();
+                let old = *repo.branches.get(&name).unwrap();
                 
                 repo.branches.create(name.clone(), *remote_tip);
 
@@ -246,11 +246,11 @@ pub async fn handle_pull_as_client(
 
     stream.send(&repo.tags).await?;
 
-    let new_tags: NamedHashes = stream.receive().await?;
+    let new_tags: NamedItems<ObjectHash> = stream.receive().await?;
 
     for (name, server_hash) in new_tags.into_iter() {
         let tag_result = match repo.tags.get(&name) {
-            Some(client_hash) if client_hash != server_hash => {
+            Some(&client_hash) if client_hash != server_hash => {
                 repo.tags.rename(&name, format!("{name}-local"));
                 
                 repo.action_history.push(
@@ -326,7 +326,7 @@ pub async fn handle_pull_as_server(
 
         let (branch_name, client_tip): (String, ObjectHash) = stream.receive().await?;
     
-        let Some(server_tip) = repo.branches.get(&branch_name) else {
+        let Some(&server_tip) = repo.branches.get(&branch_name) else {
             stream.send(&None::<()>).await?;
 
             continue;
@@ -381,12 +381,12 @@ pub async fn handle_pull_as_server(
         stream.send(&done).await?;
     }
 
-    let client_tags: NamedHashes = stream.receive().await?;
+    let client_tags: NamedItems<ObjectHash> = stream.receive().await?;
 
-    let mut new_tags = NamedHashes::new();
+    let mut new_tags = NamedItems::new();
 
     for (name, &server_hash) in repo.tags.iter() {
-        if let Some(client_hash) = client_tags.get(name)
+        if let Some(&client_hash) = client_tags.get(name)
             && client_hash == server_hash
         {
             continue;

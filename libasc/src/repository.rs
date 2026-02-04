@@ -10,31 +10,33 @@ use serde::{Deserialize, Serialize};
 use similar::TextDiff;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct NamedHashes {
-    inner: HashMap<String, ObjectHash>
+pub struct NamedItems<T: Clone> {
+    inner: HashMap<String, T>
 }
 
-impl NamedHashes {
+impl<T: Clone> NamedItems<T> {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            inner: HashMap::new()
+        }
     }
 
-    /// Create a new branch.
-    pub fn create(&mut self, name: String, hash: ObjectHash) -> Option<ObjectHash> {
+    /// Create a new named item.
+    pub fn create(&mut self, name: String, hash: T) -> Option<T> {
         self.inner.insert(name, hash)
     }
 
-    /// Get the hash a name refers to, if possible.
-    pub fn get(&self, name: &str) -> Option<ObjectHash> {
-        self.inner.get(name).cloned()
+    /// Get the item a name refers to, if possible.
+    pub fn get(&self, name: &str) -> Option<&T> {
+        self.inner.get(name)
     }
 
-    /// Check if the branch exists, regardless of privacy status.
+    /// Check if the name exists, regardless of privacy status.
     pub fn contains(&self, name: &str) -> bool {
         self.inner.contains_key(name)
     }
 
-    /// Rename a public branch, returning if the operation made any change.
+    /// Rename an item.
     pub fn rename(&mut self, old: &str, new: String) -> bool {
         let Some(hash) = self.inner.remove(old) else {
             return false;
@@ -45,17 +47,17 @@ impl NamedHashes {
         true
     }
     
-    /// Remove a hash, unlinking its name.
-    pub fn remove(&mut self, name: &str) -> Option<ObjectHash> {
+    /// Remove a name.
+    pub fn remove(&mut self, name: &str) -> Option<T> {
         self.inner.remove(name)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &ObjectHash)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &T)> {
         self.inner.iter()
     }
 
     #[allow(clippy::should_implement_trait, reason = "no")] // TODO
-    pub fn into_iter(self) -> impl Iterator<Item = (String, ObjectHash)> {
+    pub fn into_iter(self) -> impl Iterator<Item = (String, T)> {
         self.inner.into_iter()
     }
 
@@ -63,8 +65,8 @@ impl NamedHashes {
         self.inner.keys().map(|s| s.as_str())
     }
 
-    pub fn hashes(&self) -> impl Iterator<Item = ObjectHash> {
-        self.inner.values().cloned()
+    pub fn values(&self) -> impl Iterator<Item = &T> {
+        self.inner.values()
     }
 }
 
@@ -74,15 +76,15 @@ pub struct Repository {
     pub root_dir: PathBuf,
     pub history: Graph,
     pub action_history: ActionHistory,
-    pub branches: NamedHashes,
+    pub branches: NamedItems<ObjectHash>,
     pub current_hash: ObjectHash,
     pub staged_files: Vec<PathBuf>,
     pub ignore_matcher: Gitignore,
     pub stash: Stash,
     pub trash: Trash,
-    pub tags: NamedHashes,
+    pub tags: NamedItems<ObjectHash>,
     pub users: Users,
-    pub remotes: Vec<Remote>,
+    pub remotes: NamedItems<Remote>,
 
     current_user: Arc<RwLock<Option<PublicKey>>>
 }
@@ -264,7 +266,7 @@ impl Repository {
     /// by trying to interpret it as a branch name, then trying to interpret
     /// it as the hash of a snapshot.
     pub fn normalise_version(&self, raw_version: &str) -> Result<ObjectHash> {
-        if let Some(corresponding_hash) = self.branches.get(raw_version) {
+        if let Some(&corresponding_hash) = self.branches.get(raw_version) {
             Ok(corresponding_hash)
         }
         else {
@@ -439,10 +441,10 @@ pub struct ProjectInfo {
     pub project_name: String,
     pub project_code: ObjectHash,
     pub current_user: Option<PublicKey>,
-    pub branches: NamedHashes,
+    pub branches: NamedItems<ObjectHash>,
     pub current_hash: ObjectHash,
     pub stash: Stash,
-    pub remotes: Vec<Remote>
+    pub remotes: NamedItems<Remote>
 }
 
 impl ProjectInfo {
@@ -522,7 +524,7 @@ impl Repository {
 
         history.insert_orphan(root_snapshot.hash);
 
-        let mut branches = NamedHashes::new();
+        let mut branches = NamedItems::<ObjectHash>::new();
 
         branches.create("main".to_string(), root_snapshot.hash);
 
@@ -539,9 +541,9 @@ impl Repository {
             staged_files: vec![],
             stash: Stash::new(),
             trash: Trash::new(),
-            tags: NamedHashes::new(),
+            tags: NamedItems::new(),
             users,
-            remotes: vec![]
+            remotes: NamedItems::new()
         };
 
         repo.save_snapshot(root_snapshot)?;
@@ -593,7 +595,7 @@ impl Repository {
         let trash = rmp_serde::from_read(fp)?;
 
         let fp = open_file(content_dir.join("tags"))?;
-        let tags: NamedHashes = rmp_serde::from_read(fp)?;
+        let tags: NamedItems<ObjectHash> = rmp_serde::from_read(fp)?;
 
         let fp = open_file(content_dir.join("users"))?;
         let users: Users = rmp_serde::from_read(fp)?;
@@ -1020,7 +1022,7 @@ impl Repository {
     pub fn validate_state(&self) -> Result<()> {
         let mut queue = VecDeque::new();
 
-        queue.extend(self.branches.hashes());
+        queue.extend(self.branches.values().cloned());
 
         while let Some(current) = queue.pop_back() {
             let snapshot = self.fetch_snapshot(current)?;

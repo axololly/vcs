@@ -38,7 +38,7 @@ pub async fn handle_clone_as_client(
 
     repo.users = stream.receive().await?;
 
-    repo.remotes.push(remote);
+    repo.remotes.create("origin".to_string(), remote);
 
     let compressed: ByteBuf = stream.receive().await?;
 
@@ -99,7 +99,7 @@ pub async fn handle_clone_as_server(
     let mut content_seen: HashSet<ObjectHash> = HashSet::new();
     let mut queue: VecDeque<ObjectHash> = VecDeque::new();
 
-    queue.extend(repo.branches.hashes());
+    queue.extend(repo.branches.values().cloned());
 
     while let Some(next) = queue.pop_front() {
         if repo.history.contains(next) {
