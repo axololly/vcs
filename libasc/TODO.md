@@ -7,8 +7,6 @@
 
 - Add repository-level config and user-level config, customising things like default branch name
 
-- Implement hooks for the push-pull cycle and across the repository
-
 - Add bare repositories, probably by equating `main_dir` and `root_dir`
 
 - Add storing SSH URLs as remotes

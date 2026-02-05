@@ -22,6 +22,7 @@ Categories are as follows:
 ### Added
 
 - The ability to move branches with `asc branch mv` (does the equivalent of deleting and recreating the branch)
+- `asc remote` lets you interact with remote URLs in the repository
 
 ### Removed
 

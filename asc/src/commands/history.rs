@@ -34,7 +34,7 @@ pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
     let mut current_hash = if let Some(branch) = args.branch {
-        unwrap!(
+        *unwrap!(
             repo.branches.get(&branch),
             "branch {branch:?} does not exist."
         )

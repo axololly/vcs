@@ -71,17 +71,12 @@ impl Remote {
 
 impl Display for Remote {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(pass) = &self.password {
-            let mut path = self.repo_path.display().to_string();
+        let mut path = self.repo_path.display().to_string();
 
-            if path.starts_with('/') {
-                path = path.split_off(1);
-            }
+        if path.starts_with('/') {
+            path = path.split_off(1);
+        }
 
-            write!(f, "ssh://{}:{}@{}/{}", self.username, pass, self.host, path)
-        }
-        else {
-            write!(f, "{}@{}:{}", self.username, self.host, self.port)
-        }
+        write!(f, "ssh://{}@{}/{}", self.username, self.host, path)
     }
 }

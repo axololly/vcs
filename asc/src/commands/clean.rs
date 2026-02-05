@@ -11,7 +11,10 @@ pub fn parse() -> Result<()> {
     
     let mut valid_commits: HashSet<ObjectHash> = HashSet::new();
 
-    let mut queue: VecDeque<ObjectHash> = repo.branches.hashes().collect();
+    let mut queue: VecDeque<ObjectHash> = repo.branches
+        .values()
+        .cloned()
+        .collect();
 
     while let Some(current) = queue.pop_front() {
         if repo.trash_contains(current).is_some() {

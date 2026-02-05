@@ -113,7 +113,11 @@ pub enum Commands {
 
     /// Manage users in the repository.
     #[command(subcommand)]
-    User(user::Subcommands)
+    User(user::Subcommands),
+
+    /// Interact with remote URLs in the repository.
+    #[command(subcommand)]
+    Remote(remote::Subcommands)
 }
 
 pub fn run() -> eyre::Result<()> {
@@ -146,5 +150,6 @@ pub fn run() -> eyre::Result<()> {
         Blame(args) => blame::parse(args),
         Tag(subcommand) => tag::parse(subcommand),
         User(subcommand) => user::parse(subcommand),
+        Remote(subcommand) => remote::parse(subcommand),
     }
 }

@@ -22,8 +22,8 @@ impl<T: Clone> NamedItems<T> {
     }
 
     /// Create a new named item.
-    pub fn create(&mut self, name: String, hash: T) -> Option<T> {
-        self.inner.insert(name, hash)
+    pub fn create(&mut self, name: String, value: T) -> Option<T> {
+        self.inner.insert(name, value)
     }
 
     /// Get the item a name refers to, if possible.
@@ -67,6 +67,14 @@ impl<T: Clone> NamedItems<T> {
 
     pub fn values(&self) -> impl Iterator<Item = &T> {
         self.inner.values()
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 }
 
