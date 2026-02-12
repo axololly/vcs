@@ -10,9 +10,17 @@ chrono = "0.4.42"
 clap = { version = "4.5.51", features = ["derive"] }
 color-eyre = "0.6.5"
 eyre = "0.6.12"
+hex = "0.4.3"
 ignore = "0.4.25"
 libasc = { path = "../libasc" }
 similar = "2.7.0"
 threeway_merge = "0.1.10"
 unicode-width = "0.2.2"
 whoami = "1.6.1"
+
+[dependencies.tokio]
+version = "1.49.0"
+features = [
+    "macros",
+    "rt-multi-thread"
+]

@@ -3,7 +3,51 @@ use std::{collections::{HashMap, HashSet, VecDeque}, path::Path};
 use eyre::{Result, eyre};
 use serde_bytes::ByteBuf;
 
-use crate::{compress_data, content::Content, decompress_data, hash::ObjectHash, key::{PrivateKey, Signature}, repository::Repository, sync::{remote::Remote, stream::Stream, utils::{Object, Repo, ServerSecret, get_server_secret}}};
+use crate::{compress_data, content::Content, decompress_data, hash::ObjectHash, key::{PrivateKey, Signature}, repository::Repository, sync::{remote::Remote, stream::Stream, utils::{get_server_secret, Object, Repo, ServerSecret}}};
+
+pub fn fetch_repo_objecs(repo: &Repository) -> Result<HashMap<ObjectHash, Object>> {
+    let mut objects = HashMap::new();
+
+    let mut queue = VecDeque::new();
+    let mut hashes_seen = HashSet::new();
+
+    for &hash in repo.tags.values() {
+        let snapshot = repo.fetch_snapshot(hash)?;
+        
+        hashes_seen.insert(hash);
+
+        objects.insert(hash, Object::Commit(Box::new(snapshot)));
+    }
+
+    queue.extend(repo.branches.values().cloned());
+
+    while let Some(hash) = queue.pop_front() {
+        if hashes_seen.contains(&hash) {
+            continue;
+        }
+
+        hashes_seen.insert(hash);
+
+        if repo.history.contains(hash) {
+            let snapshot = repo.fetch_snapshot(hash)?;
+
+            queue.extend(snapshot.parents.iter().cloned());
+
+            objects.insert(hash, Object::Commit(Box::new(snapshot)));
+        }
+        else {
+            let content = repo.fetch_content_object(hash)?;
+
+            if let Content::Delta(delta) = &content {
+                queue.push_back(delta.original);
+            }
+
+            objects.insert(hash, Object::Content(content));
+        }
+    }
+
+    Ok(objects)
+}
 
 pub async fn handle_clone_as_client(
     stream: &mut impl Stream,
@@ -25,7 +69,7 @@ pub async fn handle_clone_as_client(
     let mut repo = Repository::create_new(
         local_repo_path,
         "axo".to_string(),
-        "name".to_string()
+        "unnamed".to_string()
     )?;
 
     repo.project_name = stream.receive().await?;
@@ -94,35 +138,7 @@ pub async fn handle_clone_as_server(
 
     stream.send(&repo.users.without_private_keys()).await?;
 
-    let mut objects: HashMap<ObjectHash, Object> = HashMap::new();
-
-    let mut content_seen: HashSet<ObjectHash> = HashSet::new();
-    let mut queue: VecDeque<ObjectHash> = VecDeque::new();
-
-    queue.extend(repo.branches.values().cloned());
-
-    while let Some(next) = queue.pop_front() {
-        if repo.history.contains(next) {
-            let snapshot = repo.fetch_snapshot(next)?;
-
-            queue.extend(snapshot.files.values().cloned());
-
-            queue.extend(snapshot.parents.iter().cloned());
-
-            objects.insert(next, Object::Commit(Box::new(snapshot)));
-        }
-        else if !content_seen.contains(&next) {
-            content_seen.insert(next);
-
-            let content = repo.fetch_content_object(next)?;
-
-            if let Content::Delta(delta) = &content {
-                queue.push_back(delta.original);
-            }
-
-            objects.insert(next, Object::Content(content));
-        }
-    }
+    let objects = fetch_repo_objecs(&repo)?;
 
     let serialised = rmp_serde::to_vec(&objects)?;
 

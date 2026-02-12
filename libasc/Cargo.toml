@@ -31,7 +31,8 @@ features = [
     "io-std",
     "io-util",
     "sync",
-    "process"
+    "process",
+    "rt"
 ]
 
 [dependencies.xdelta3]

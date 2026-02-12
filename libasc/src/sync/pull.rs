@@ -30,7 +30,7 @@ pub async fn client_fetch_objects(
         }
     }
 
-    let mut contents: HashMap<ObjectHash, Object> = HashMap::new();
+    let mut objects: HashMap<ObjectHash, Object> = HashMap::new();
 
     while let Some(next) = queue.pop_front() {
         stream.send(&PENDING).await?;
@@ -39,27 +39,25 @@ pub async fn client_fetch_objects(
         
         let raw_object: Result<Object, String> = stream.receive().await?;
 
-        let content = raw_object
+        let object = raw_object
             .map_err(|message| eyre!("server error: {message}"))?;
 
-        if let Object::Commit(snapshot) = &content
+        if let Object::Commit(snapshot) = &object
             && snapshots_to_resolve.contains(&snapshot.hash)
         {
             queue.extend(snapshot.files.values().cloned());
         }
 
-        if let Object::Content(Content::Delta(delta)) = &content
-            && repo.fetch_string_content(delta.original).is_err()
-        {
+        if let Object::Content(Content::Delta(delta)) = &object {
             queue.push_back(delta.original);
         }
 
-        contents.insert(next, content);
+        objects.insert(next, object);
     }
 
     stream.send(&DONE).await?;
 
-    Ok(contents)
+    Ok(objects)
 }
 
 pub async fn server_serve_objects(

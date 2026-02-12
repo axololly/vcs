@@ -141,6 +141,24 @@ pub async fn handle_push_as_client(
     for (name, tag_result) in tag_results {
         results.push(PushResult::Tag(name, tag_result));
     }
+
+    let missing_on_server: Vec<ObjectHash> = stream.receive().await?;
+
+    let mut requested_objects = HashMap::new();
+
+    for hash in missing_on_server {
+        let snapshot = repo.fetch_snapshot(hash)?;
+
+        for &content_hash in snapshot.files.values() {
+            let content = repo.fetch_content_object(content_hash)?;
+
+            requested_objects.insert(hash, Object::Content(content));
+        }
+
+        requested_objects.insert(hash, Object::Commit(Box::new(snapshot)));
+    }
+
+    stream.send(&requested_objects).await?;
     
     Ok(results)
 }
@@ -218,6 +236,10 @@ pub async fn handle_push_as_server(
         let previous = repo.branches.create(branch_name.clone(), client_tip);
 
         let action = if let Some(old) = previous {
+            if old == repo.current_hash {
+                repo.current_hash = client_tip;
+            }
+            
             Action::MoveBranch {
                 name: branch_name,
                 old,
@@ -238,8 +260,12 @@ pub async fn handle_push_as_server(
 
     let mut tag_results: HashMap<String, TagPushResult> = HashMap::new();
 
+    let mut needed_snapshots = Vec::new();
+
     for (name, client_hash) in client_tags.into_iter() {
         let Some(&server_hash) = repo.tags.get(&name) else {
+            needed_snapshots.push(client_hash);
+
             repo.tags.create(name.to_string(), client_hash);
 
             tag_results.insert(name, TagPushResult::New(client_hash));
@@ -255,8 +281,17 @@ pub async fn handle_push_as_server(
     }
 
     stream.send(&tag_results).await?;
-    
-    // TODO: validate that the server has no missing content
+
+    stream.send(&needed_snapshots).await?;
+
+    let tag_objects: HashMap<ObjectHash, Object> = stream.receive().await?;
+
+    for (hash, object) in tag_objects {
+        match object {
+            Object::Commit(snapshot) => repo.save_snapshot(*snapshot)?,
+            Object::Content(content) => repo.save_content_object(content, hash)?
+        }
+    }
 
     repo.save()?;
 

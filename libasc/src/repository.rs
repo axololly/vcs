@@ -56,7 +56,10 @@ impl<T: Clone> NamedItems<T> {
         self.inner.iter()
     }
 
-    #[allow(clippy::should_implement_trait, reason = "no")] // TODO
+    #[allow(
+        clippy::should_implement_trait,
+        reason = "Easier to make a method"
+    )]
     pub fn into_iter(self) -> impl Iterator<Item = (String, T)> {
         self.inner.into_iter()
     }

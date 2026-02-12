@@ -58,13 +58,13 @@ impl Client {
         handle_push_as_client(&mut self.conn, repo).await
     }
 
-    pub async fn clone_repo(&mut self, repo_path: &Path, user_key: PrivateKey) -> Result<()> {
+    pub async fn clone_repo(&mut self, local_repo_path: &Path, user_key: PrivateKey) -> Result<()> {
         self.conn.send(&Method::Clone).await?;
 
         handle_clone_as_client(
             &mut self.conn,
             self.remote.clone(),
-            repo_path,
+            local_repo_path,
             user_key
         ).await
     }

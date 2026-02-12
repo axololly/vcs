@@ -4,6 +4,7 @@ mod branch;
 mod cat;
 mod changes;
 mod clean;
+mod clone;
 mod commit;
 mod diff;
 mod history;
@@ -117,7 +118,10 @@ pub enum Commands {
 
     /// Interact with remote URLs in the repository.
     #[command(subcommand)]
-    Remote(remote::Subcommands)
+    Remote(remote::Subcommands),
+
+    /// Clone a repository from a URL.
+    Clone(clone::Args)
 }
 
 pub fn run() -> eyre::Result<()> {
@@ -151,5 +155,6 @@ pub fn run() -> eyre::Result<()> {
         Tag(subcommand) => tag::parse(subcommand),
         User(subcommand) => user::parse(subcommand),
         Remote(subcommand) => remote::parse(subcommand),
+        Clone(args) => clone::parse(args)
     }
 }

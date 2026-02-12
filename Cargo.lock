@@ -100,10 +100,12 @@ dependencies = [
  "clap",
  "color-eyre",
  "eyre",
+ "hex",
  "ignore",
  "libasc",
  "similar",
  "threeway_merge",
+ "tokio",
  "unicode-width",
  "whoami",
 ]

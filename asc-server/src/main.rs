@@ -2,7 +2,7 @@ use std::{fs, sync::Arc};
 
 use chrono::Utc;
 use directories::BaseDirs;
-use eyre::Result;
+use eyre::{Report, Result};
 use libasc::{repository::Repository, sync::{server::handle_server, stream::StdinStdout}};
 use tokio::sync::Mutex;
 
@@ -32,7 +32,7 @@ async fn run() -> Result<()> {
     handle_server(&mut stream, repo).await
 }
 
-fn save_error(error: &eyre::Report) {
+fn save_error(error: &Report) {
     let mut now = Utc::now().to_string();
 
     if let Some(i) = now.find('.') {
@@ -49,10 +49,15 @@ fn save_error(error: &eyre::Report) {
 
     let log_path = dirs.cache_dir().join(name);
 
-    let _ = fs::write(
-        log_path,
+    let result = fs::write(
+        &log_path,
         format!("{error:?}")
     );
+
+    match result {
+        Ok(_) => eprintln!("Saved traceback to {}", log_path.display()),
+        Err(e) => eprintln!("Failed to save traceback to {}: {e:?}", log_path.display())
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -60,7 +65,7 @@ async fn main() -> Result<()> {
     if let Err(e) = run().await {
         save_error(&e);
 
-        error!("{e}");
+        error!("Encountered error while running: {e}");
     }
 
     Ok(())

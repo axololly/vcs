@@ -4,7 +4,6 @@ use eyre::{bail, Result};
 
 use libasc::{repository::Repository, unwrap};
 
-// TODO: include more subcommands for things like closing and reopening user accounts
 #[derive(Subcommand)]
 pub enum Subcommands {
     /// Create a new user in the repository.
