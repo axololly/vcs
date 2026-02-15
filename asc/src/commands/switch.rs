@@ -1,9 +1,8 @@
-use clap::Args as A;
-use eyre::{Result, bail};
+use eyre::Result;
 
 use libasc::{action::Action, repository::Repository};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The version to change to.
     /// This can be a branch name or a commit hash.
@@ -14,7 +13,9 @@ pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
     if repo.has_unsaved_changes()? {
-        bail!("cannot switch versions with unsaved changes.");
+        eprintln!("Cannot switch versions with unsaved changes.");
+
+        return Ok(());
     }
 
     let previous_hash = repo.current_hash;

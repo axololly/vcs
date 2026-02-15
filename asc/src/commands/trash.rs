@@ -1,9 +1,8 @@
-use clap::Subcommand;
-use eyre::{Result, bail, eyre};
+use eyre::{Result, eyre};
 
 use libasc::{graph::Graph, hash::ObjectHash, repository::Repository, trash::{Entry, TrashStatus}, unwrap};
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 pub enum Subcommands {
     /// Move a snapshot to the trash.
     Add {
@@ -73,19 +72,23 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             );
 
             if parents.is_empty() {
-                bail!("cannot trash the root snapshot.");
+                eprintln!("Cannot trash a root snapshot.");
+
+                return Ok(());
             }
 
             if let Some(status) = repo.trash_contains(hash) {
                 match status {
                     TrashStatus::Direct => {
-                        bail!("this snapshot is already in the trash.");
+                        eprintln!("The snapshot {hash} is already in the trash (direct).");
                     }
 
-                    TrashStatus::Indirect(in_trash) => {
-                        bail!("this snapshot in the trash because it is a descendant of the snapshot {in_trash}.");
+                    TrashStatus::Indirect(parent) => {
+                        eprintln!("The snapshot {hash} is already in the trash (indirect: {parent}).")
                     }
                 }
+
+                return Ok(());
             }
 
             let tags_to_remove: Vec<(&str, ObjectHash)> = repo.tags
@@ -110,24 +113,28 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                     .map(|(name, _)| *name)
                     .collect();
 
-                bail!("trashing this snapshot and its children involves trashing snapshots that have been tagged: {tag_list}\n\nTo resolve this, run `asc tag delete {}` to delete the offending tags.", tag_names.join(", "));
+                eprintln!("Trashing this snapshot and its children involves trashing snapshots that have been tagged: {tag_list}\n\nTo resolve this, run `asc tag delete {}` to delete the offending tags.", tag_names.join(" "));
+
+                return Ok(());
             }
 
             repo.trash.add(hash);
 
             if repo.history.is_descendant(repo.current_hash, hash)? {
                 if repo.has_unsaved_changes()? {
-                    let pretty_hash = repo
+                    let pretty_offending = repo
                         .branch_from_hash(hash)
                         .map(String::from)
-                        .unwrap_or(format!("{hash}"));
+                        .unwrap_or(hash.to_string());
 
                     let pretty_current = repo
                         .current_branch()
                         .map(String::from)
                         .unwrap_or(format!("{}", repo.current_hash));
                     
-                    bail!("by trashing {pretty_hash}, the HEAD at {pretty_current} would also be trashed. Normally, this would move the HEAD back to one of the parents of {pretty_hash} to move the HEAD out of the trash. However, there are unsaved changes which would be lost. To save these, stash them or introduce a new commit to the repository.")
+                    eprintln!("By trashing {pretty_offending}, the HEAD at {pretty_current} would also be trashed. Normally, this would move the HEAD back to one of the parents of {pretty_offending} to move the HEAD out of the trash. However, there are unsaved changes which would be lost. To save these, stash them or introduce a new commit to the repository.");
+
+                    return Ok(());
                 }
 
                 let parents = repo.history.get_parents(hash).unwrap();
@@ -163,11 +170,15 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 }
 
                 Some(TrashStatus::Indirect(to_remove)) => {
-                    bail!("snapshot {hash} cannot be removed from the trash until {to_remove} is removed.");
+                    eprintln!("Snapshot {hash} cannot be removed from the trash until {to_remove} is removed.");
+
+                    return Ok(());
                 }
 
                 None => {
-                    bail!("snapshot {hash} does not exist in the trash.");
+                    eprintln!("Snapshot {hash} does not exist in the trash.");
+
+                    return Ok(());
                 }
             }
 
@@ -184,7 +195,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             let limit = limit.unwrap_or(usize::MAX);
 
             if repo.trash.is_empty() {
-                println!("The trash is empty. Add new snapshots to the trash with `asc trash add`.");
+                eprintln!("The trash is empty. Add new snapshots to the trash with `asc trash add`.");
 
                 return Ok(());
             }
@@ -221,7 +232,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             let limit = limit.unwrap_or(usize::MAX);
 
             if repo.trash.is_empty() {
-                println!("The trash is empty. Add new snapshots to the trash with `asc trash add`.");
+                eprintln!("The trash is empty. Add new snapshots to the trash with `asc trash add`.");
 
                 return Ok(());
             }

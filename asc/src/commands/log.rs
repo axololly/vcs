@@ -1,10 +1,9 @@
-use clap::Args as A;
 use color_eyre::owo_colors::OwoColorize;
 use eyre::Result;
 
 use libasc::repository::Repository;
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The maximum number of actions to list.
     #[arg(short = 'n', long)]
@@ -31,8 +30,8 @@ pub fn parse(args: Args) -> Result<()> {
     };
 
     if repo.action_history.current().is_none() && !args.all {
-        println!("No more actions to be undone in this repository.");
-        println!("(hint: rerun with '--all' to see redoable actions)");
+        eprintln!("No more actions to be undone in this repository.");
+        eprintln!("(hint: rerun with '--all' to see redoable actions)");
 
         return Ok(());
     }

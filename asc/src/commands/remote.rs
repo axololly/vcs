@@ -1,8 +1,7 @@
-use clap::Subcommand;
 use eyre::Result;
 use libasc::{repository::Repository, sync::remote::Remote, unwrap};
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 pub enum Subcommands {
     /// Add a remote URL.
     Add {

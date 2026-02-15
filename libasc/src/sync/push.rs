@@ -9,14 +9,14 @@ use crate::{action::Action, graph::Graph, hash::ObjectHash, repository::{NamedIt
 pub enum BranchPushResult {
     CreatedOnRemote,
     UpToDate,
-    FastForward(Graph, ObjectHash),
+    FastForward(ObjectHash, ObjectHash),
     SplitHistory
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum TagPushResult {
-    Conflict(ObjectHash, ObjectHash),
-    New(ObjectHash)
+    Conflict,
+    CreatedOnRemote
 }
 
 pub enum PushResult {
@@ -97,11 +97,11 @@ pub async fn client_push_one_branch(
 
     stream.send(&objects).await?;
     
-    let result = if remote_tip_if_any.is_some() {
-        BranchPushResult::CreatedOnRemote
+    let result = if let Some(remote_tip) = remote_tip_if_any {
+        BranchPushResult::FastForward(remote_tip, local_tip)
     }
     else {
-        BranchPushResult::FastForward(branch, local_tip)
+        BranchPushResult::CreatedOnRemote
     };
 
     Ok(result)
@@ -268,7 +268,7 @@ pub async fn handle_push_as_server(
 
             repo.tags.create(name.to_string(), client_hash);
 
-            tag_results.insert(name, TagPushResult::New(client_hash));
+            tag_results.insert(name, TagPushResult::CreatedOnRemote);
 
             continue;
         };
@@ -277,7 +277,7 @@ pub async fn handle_push_as_server(
             continue;
         }
 
-        tag_results.insert(name, TagPushResult::Conflict(client_hash, server_hash));
+        tag_results.insert(name, TagPushResult::Conflict);
     }
 
     stream.send(&tag_results).await?;

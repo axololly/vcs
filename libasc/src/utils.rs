@@ -4,6 +4,7 @@ use std::{fs::{self, File}, io::Write, path::{Path, PathBuf}, process::Command};
 
 use eyre::{Context, Result, bail, eyre};
 use glob::glob;
+use glob_match::glob_match;
 use miniz_oxide::{deflate::compress_to_vec, inflate::decompress_to_vec};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -25,6 +26,21 @@ pub fn resolve_wildcard_path(root: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
     }
 
     Ok(result)
+}
+
+/// Filter a list of strings using a list of glob patterns.
+pub fn filter_with_glob<S: AsRef<str>, I: AsRef<str>>(globs: Vec<S>, input: &[I]) -> Vec<&I> {
+    let mut valid = vec![];
+
+    for path in input {
+        for pat in &globs {
+            if glob_match(pat.as_ref(), path.as_ref()) {
+                valid.push(path);
+            }
+        }
+    }
+
+    valid
 }
 
 /// Compress data using [`miniz_oxide::deflate::compress_to_vec`].

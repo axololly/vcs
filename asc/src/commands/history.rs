@@ -1,8 +1,11 @@
-use clap::{Args as A, ValueEnum};
-use color_eyre::owo_colors::OwoColorize;
-use eyre::{Result, bail};
+use std::path::PathBuf;
 
-use libasc::{repository::Repository, snapshot::Snapshot, unwrap};
+use chrono::{DateTime, Utc};
+use clap::ValueEnum;
+use color_eyre::owo_colors::OwoColorize;
+use eyre::Result;
+
+use libasc::{hash::ObjectHash, repository::Repository, snapshot::Snapshot, unwrap};
 
 #[derive(Clone, Copy, ValueEnum)]
 enum Format {
@@ -11,8 +14,11 @@ enum Format {
     Long
 }
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
+    /// The path to filter commits based on.
+    path: Option<PathBuf>,
+
     /// How many snapshots to display.
     #[arg(short = 'n', long)]
     limit: Option<usize>,
@@ -23,7 +29,15 @@ pub struct Args {
 
     /// The format to use when listing snapshots.
     #[arg(short, long, value_enum)]
-    format: Option<Format>
+    format: Option<Format>,
+
+    /// Check for snapshots before a certain datetime.
+    #[arg(long = "before")]
+    snapshots_before: Option<DateTime<Utc>>,
+
+    /// Check for snapshots after a certain datetime.
+    #[arg(long = "after")]
+    snapshots_after: Option<DateTime<Utc>>
 }
 
 fn first_line_only(message: &str) -> &str {
@@ -31,6 +45,12 @@ fn first_line_only(message: &str) -> &str {
 }
 
 pub fn parse(args: Args) -> Result<()> {
+    if args.snapshots_before.is_some() && args.snapshots_after.is_some() {
+        eprintln!("'--before' and '--after' are mutually exclusive.");
+
+        return Ok(());
+    }
+
     let repo = Repository::load()?;
 
     let mut current_hash = if let Some(branch) = args.branch {
@@ -55,6 +75,8 @@ pub fn parse(args: Args) -> Result<()> {
             "snapshot hash {current_hash} is not referenced in the snapshot tree."
         );
 
+        // TODO: allow traversing if node is a merge child?
+
         // 0 parents -> root
         // 2+ parents -> merge
         if parents.len() != 1 {
@@ -66,13 +88,45 @@ pub fn parse(args: Args) -> Result<()> {
         current_hash = next_hash;
     }
 
-    if snapshots.is_empty() {
-        bail!("no snapshots have been made on this branch.");
+    if let Some(path) = &args.path {
+        let mut valid_snapshots = vec![];
+
+        let mut current_hash = ObjectHash::default();
+
+        for snapshot in snapshots {
+            let Some(&content_hash) = snapshot.files.get(path) else {
+                continue;
+            };
+
+            if content_hash == current_hash {
+                continue;
+            }
+
+            current_hash = content_hash;
+
+            valid_snapshots.push(snapshot);
+        }
+
+        snapshots = valid_snapshots;
     }
 
-    let snapshots_to_show = args.limit
-        .map(|v| &snapshots[..v])
-        .unwrap_or(&snapshots);
+    if let Some(datetime) = args.snapshots_before {
+        snapshots.retain(|snapshot| snapshot.timestamp < datetime);
+    }
+
+    if let Some(datetime) = args.snapshots_after {
+        snapshots.retain(|snapshot| snapshot.timestamp > datetime);
+    }
+
+    if snapshots.is_empty() {
+        eprintln!("No snapshots found.");
+
+        return Ok(());
+    }
+
+    let snapshots_to_show = snapshots
+        .iter()
+        .take(args.limit.unwrap_or(usize::MAX));
 
     for snapshot in snapshots_to_show {
         match args.format.unwrap_or(Format::Medium) {
@@ -88,11 +142,15 @@ pub fn parse(args: Args) -> Result<()> {
             }
             
             Format::Medium => {
+                let author = repo.users
+                    .get_user(&snapshot.author)
+                    .map(|u| u.name.as_str())
+                    .unwrap_or("<unknown user>");
+
                 let line = format!(
-                    "[{}]  {} (user: {})",
+                    "[{}]  {} (user: {author})",
                     snapshot.hash,
-                    first_line_only(&snapshot.message),
-                    snapshot.author
+                    first_line_only(&snapshot.message)
                 );
 
                 if repo.current_hash == snapshot.hash {

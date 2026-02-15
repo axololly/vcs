@@ -51,6 +51,12 @@ pub enum Action {
         name: String,
         hash: ObjectHash
     },
+    #[display("Moved tag {name:?} from {old} to {new}")]
+    MoveTag {
+        name: String,
+        old: ObjectHash,
+        new: ObjectHash
+    },
     #[display("Renamed tag {old:?} to {new:?} ({hash})")]
     RenameTag {
         old: String,

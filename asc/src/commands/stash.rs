@@ -1,10 +1,8 @@
 use std::{collections::BTreeMap, io::Read};
 
-use clap::Subcommand;
-
 use libasc::{get_content_from_editor, open_file, repository::Repository, stash::State, unwrap};
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 pub enum Subcommands {
     /// Create a new stash in the repository,
     /// and then revert to the latest snapshot.

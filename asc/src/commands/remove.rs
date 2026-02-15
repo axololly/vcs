@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
-use clap::Args as A;
 use eyre::Result;
 
 use libasc::{repository::Repository, utils::resolve_wildcard_path};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The paths to remove from tracking. Wildcards will be expanded.
     paths: Vec<PathBuf>

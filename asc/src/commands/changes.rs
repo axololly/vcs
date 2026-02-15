@@ -1,9 +1,8 @@
-use clap::Args as A;
 use eyre::Result;
 
 use libasc::{change::FileChange, repository::Repository};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// Include unchanged files in the list of changes.
     #[arg(short, long)]
@@ -20,7 +19,7 @@ pub fn parse(args: Args) -> Result<()> {
     }
 
     if file_changes.is_empty() {
-        println!("There are no changes in the repository.");
+        eprintln!("No changes have been made.");
 
         return Ok(());
     }

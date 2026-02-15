@@ -1,9 +1,8 @@
-use clap::Args as A;
-use eyre::{Result, bail};
+use eyre::Result;
 
 use libasc::{repository::Repository, unwrap, get_content_from_editor};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The message to be attached to the commit.
     #[arg(short, long)]
@@ -30,11 +29,11 @@ pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
     if !repo.has_unsaved_changes()? {
-        bail!("no changes to document in the upcoming commit.");
+        eprintln!("No changes to document in the upcoming commit.");
     }
 
     if repo.staged_files.is_empty() {
-        bail!("no files are being tracked - empty snapshots are disallowed.");
+        eprintln!("No files are being tracked - empty snapshots are disallowed.");
     }
 
     let message = if let Some(msg) = args.message {

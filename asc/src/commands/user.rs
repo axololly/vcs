@@ -1,10 +1,9 @@
-use clap::Subcommand;
 use color_eyre::owo_colors::OwoColorize;
 use eyre::{bail, Result};
 
 use libasc::{repository::Repository, unwrap};
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 pub enum Subcommands {
     /// Create a new user in the repository.
     /// By default, they will inherit the permissions
@@ -63,7 +62,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
 
         List => {
             if repo.users.is_empty() {
-                println!("No users in the repository.");
+                eprintln!("No users in the repository.");
                 
                 return Ok(());
             }
@@ -83,16 +82,22 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
 
         Info { username, show_private_key } => {
             let user = if let Some(name) = username {
-                unwrap!(
-                    repo.users.get_user(name.as_str()),
-                    "no user with name {name:?} in this repository."
-                )
+                let Some(user) = repo.users.get_user(name.as_str()) else {
+                    eprintln!("No user with name {name:?} found.");
+
+                    return Ok(());
+                };
+
+                user
             }
             else {
-                unwrap!(
-                    repo.current_user(),
-                    "no valid user set on this repository."
-                )
+                let Some(user) = repo.current_user() else {
+                    eprintln!("No valid user set on this repository.");
+
+                    return Ok(());
+                };
+
+                user
             };
 
             let name = if user.closed {
@@ -114,13 +119,14 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
         },
 
         Close { username } => {
-            let user = unwrap!(
-                repo.users.get_user_mut(&username),
-                "no user with name {username:?} in this repository."
-            );
+            let Some(user) = repo.users.get_user_mut(&username) else {
+                eprintln!("No user with name {username:?} found.");
+
+                return Ok(());
+            };
 
             if user.closed {
-                println!("User account is already closed.");
+                eprintln!("User account is already closed.");
             }
             else {
                 user.closed = true;
@@ -141,7 +147,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 println!("Reopened user account {username:?}");
             }
             else {
-                println!("User account is already open.");
+                eprintln!("User account is already open.");
             }
         },
 
@@ -161,10 +167,11 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
         },
 
         Rename { old, new } => {
-            let user = unwrap!(
-                repo.users.get_user_mut(&old),
-                "no user in this repository with the name {old:?}"
-            );
+            let Some(user) = repo.users.get_user_mut(&old) else {
+                eprintln!("No user with name {old:?} found.");
+
+                return Ok(());
+            };
 
             user.name = new;
 

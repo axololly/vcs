@@ -1,56 +1,8 @@
-use clap::Args as A;
 use eyre::Result;
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
-use libasc::{repository::Repository, unwrap};
+use libasc::{filter_with_glob, repository::Repository};
 
-enum Entry<'name> {
-    File(&'name str),
-    Directory(&'name str, Vec<Entry<'name>>)
-}
-
-fn build_file_tree<'a>(paths: &'a [&str], patterns: Option<Vec<String>>) -> Result<Entry<'a>> {
-    let mut root = Entry::Directory("", vec![]);
-
-    let ignore = match patterns {
-        Some(paths) => {
-            let mut builder = GitignoreBuilder::new(".");
-
-            for path in paths {
-                builder.add(path);
-            }
-
-            builder.build()?
-        }
-    
-        None => Gitignore::empty()
-    };
-
-    for path in paths {
-        // Ignore any that don't match the glob.
-        if !ignore.matched(path, false).is_ignore() {
-            continue;
-        }
-
-        let node = &mut root;
-
-        for part in path.split('/') {
-            match node {
-                Entry::File(name) => {
-                    *node = Entry::Directory(name, vec![]);
-                }
-
-                Entry::Directory(_, children) => {
-                    children.push(Entry::File(part));
-                }
-            }
-        }
-    }
-
-    Ok(root)
-}
-
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The pattern to glob against. Omitting this lists from the repository root.
     patterns: Option<Vec<String>>,
@@ -64,84 +16,41 @@ pub struct Args {
     version: Option<String>
 }
 
-fn print_tree(tree: Entry<'_>) -> eyre::Result<()> {
-    let files = match tree {
-        Entry::File(_) => vec![tree],
-        Entry::Directory(_, children) => children
-    };
-
-    for file in files {
-        match file {
-            Entry::File(name) => {
-                println!("{name}");
-            }
-
-            Entry::Directory(name, _) => {
-                println!("{name}/");
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn from_version(repo: &Repository, version: &str, patterns: Option<Vec<String>>, include_hidden: bool) -> eyre::Result<()> {
-    let snapshot_hash = repo.normalise_version(version)?;
-
-    let snapshot = repo.fetch_snapshot(snapshot_hash)?;
-
-    let mut files: Vec<&str> = vec![];
-    
-    for raw_path in snapshot.files.keys() {
-        let str_path = unwrap!(
-            raw_path.to_str(),
-            "invalid utf8 in path: {}", raw_path.display()
-        );
-
-        if !include_hidden && str_path.starts_with(".") {
-            continue;
-        }
-
-        files.push(str_path);
-    }
-
-    let tree = build_file_tree(&files, patterns)?;
-
-    print_tree(tree)?;
-
-    Ok(())
-}
-
-fn from_cwd(repo: &Repository, patterns: Option<Vec<String>>, include_hidden: bool) -> eyre::Result<()> {
-    let mut files: Vec<&str> = vec![];
-
-    for raw_path in &repo.staged_files {
-        let str_path = unwrap!(
-            raw_path.to_str(),
-            "invalid utf8 in path: {}", raw_path.display()
-        );
-
-        if !include_hidden && str_path.starts_with(".") {
-            continue;
-        }
-
-        files.push(str_path);
-    }
-
-    let tree = build_file_tree(&files, patterns)?;
-
-    print_tree(tree)?;
-    
-    Ok(())
-}
-
-pub fn parse(args: Args) -> eyre::Result<()> {
+pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
-    if let Some(ref version) = args.version {
-        from_version(&repo, version, args.patterns, args.include_hidden)
+    let paths: Vec<String> = if let Some(raw_version) = &args.version {
+        let version = repo.normalise_version(raw_version)?;
+
+        let snapshot = repo.fetch_snapshot(version)?;
+
+        snapshot.files
+            .keys()
+            .map(|p| format!("{p:?}"))
+            .collect()
     }
     else {
-        from_cwd(&repo, args.patterns, args.include_hidden)
+        repo.staged_files
+            .iter()
+            .map(|p| format!("{p:?}"))
+            .collect()
+    };
+
+    let patterns = args.patterns.unwrap_or(vec!["**/*".to_string()]);
+
+    let mut valid_paths: Vec<&String> = filter_with_glob(patterns, &paths);
+
+    if valid_paths.is_empty() {
+        eprintln!("No paths found.");
+
+        return Ok(());
     }
+
+    valid_paths.sort();
+
+    for path in valid_paths {
+        println!("{path}");
+    }
+
+    Ok(())
 }

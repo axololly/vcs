@@ -1,12 +1,11 @@
 use std::{collections::BTreeSet, fs, path::{Path, PathBuf}};
 
-use clap::Args as A;
-use eyre::{Result, bail};
+use eyre::Result;
 use similar::{udiff::UnifiedDiff, TextDiff};
 
 use libasc::{change::FileChange, hash::ObjectHash, repository::Repository, unwrap};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     path: Option<PathBuf>,
 
@@ -135,7 +134,9 @@ pub fn parse(args: Args) -> Result<()> {
     };
 
     if from.is_none() && to.is_some() {
-        bail!("the option '--to' cannot be used without '--from'.");
+        eprintln!("the option '--to' cannot be used without '--from'.");
+
+        return Ok(());
     }
 
     let old_files = get_locators(&repo, from.or(Some(repo.current_hash)))?;

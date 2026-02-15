@@ -72,6 +72,10 @@ pub async fn handle_clone_as_client(
         "unnamed".to_string()
     )?;
 
+    let root_hash = repo.history.iter_hashes().next().unwrap();
+
+    repo.history.remove(root_hash);
+
     repo.project_name = stream.receive().await?;
     repo.project_code = stream.receive().await?;
 
@@ -82,6 +86,10 @@ pub async fn handle_clone_as_client(
 
     repo.users = stream.receive().await?;
 
+    let main_user = repo.users.get_user_mut(&user_key.public_key()).unwrap();
+
+    main_user.private_key = Some(user_key);
+
     repo.remotes.create("origin".to_string(), remote);
 
     let compressed: ByteBuf = stream.receive().await?;
@@ -89,6 +97,8 @@ pub async fn handle_clone_as_client(
     let decompressed = decompress_data(compressed)?;
 
     let objects: HashMap<ObjectHash, Object> = rmp_serde::from_slice(&decompressed)?;
+
+    println!("received {} objects ({:?})", objects.len(), objects.keys().collect::<Vec<_>>());
 
     for (hash, object) in objects {
         match object {

@@ -1,11 +1,10 @@
 use std::{io::{stdin, Read}, path::{Path, PathBuf}};
 
-use clap::Args as A;
 use eyre::Result;
 
 use libasc::{repository::Repository, resolve_wildcard_path};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The files to add for the next snapshot. Wilcards will be expanded.
     paths: Vec<PathBuf>,
@@ -110,7 +109,7 @@ pub fn parse(args: Args) -> Result<()> {
     
     let new_files_added = repo.staged_files.len() - initial_length;
 
-    println!("Added {new_files_added} new file{}!", if new_files_added != 1 { "s" } else { "" });
+    println!("Added {new_files_added} new files.");
 
     Ok(())
 }

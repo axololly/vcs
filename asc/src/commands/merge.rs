@@ -1,9 +1,8 @@
 use std::{collections::{BTreeMap, HashMap, HashSet, VecDeque}, path::PathBuf};
 
 use chrono::Utc;
-use clap::Args as A;
 
-use eyre::{Result, bail};
+use eyre::Result;
 
 // TODO: write your own
 use threeway_merge::{merge_strings, MergeOptions};
@@ -39,7 +38,6 @@ fn nodes_to_root(graph: &Graph, node: ObjectHash) -> HashMap<ObjectHash, usize> 
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 enum Ancestry {
     Inclusive(ObjectHash),
     Exclusive(ObjectHash)
@@ -90,7 +88,7 @@ enum MergeType {
     Dirty(String)
 }
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The version to merge onto the current snapshot.
     version: String,
@@ -118,7 +116,9 @@ pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
     if repo.has_unsaved_changes()? {
-        bail!("cannot merge with unsaved changes");
+        eprintln!("Cannot merge with unsaved changes.");
+
+        return Ok(());
     }
 
     let target = repo.normalise_version(&args.version)?;

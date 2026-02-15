@@ -1,11 +1,10 @@
 use std::io::{Read, stdin};
 
-use clap::Subcommand;
-use eyre::{Result, bail};
+use eyre::Result;
 
-use libasc::{action::Action, repository::Repository};
+use libasc::{action::Action, filter_with_glob, repository::Repository};
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 pub enum Subcommands {
     /// Create a new tag in the repository.
     #[command(visible_aliases = ["new", "add"])]
@@ -19,6 +18,8 @@ pub enum Subcommands {
 
     /// List all the tags in the repository.
     List {
+        globs: Option<Vec<String>>,
+
         #[arg(short = 'n', long)]
         limit: Option<usize>
     },
@@ -88,23 +89,24 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             }
         },
 
-        List { limit } => {
-            let mut tags = repo.tags
-                .iter()
-                .take(limit.unwrap_or(usize::MAX));
+        List { globs, limit } => {
+            let globs = globs.unwrap_or(vec!["**/*".to_string()]);
 
-            if let Some((name, &hash)) = tags.next() {
-                println!("Tags:");
-                println!(" * {name} -> {hash}");
-            }
-            else {
-                println!("There are no tags in this repository.");
-                println!("Create a new one with `asc tag create`.");
+            let all_tags: Vec<&String> = repo.tags.names().collect();
+            
+            let tags: Vec<&&String> = filter_with_glob(globs, &all_tags);
+
+            if tags.is_empty() {
+                println!("No tags found.");
 
                 return Ok(());
             }
 
-            for (name, &hash) in tags {
+            println!("Tags:");
+
+            for name in tags.iter().take(limit.unwrap_or(usize::MAX)) {
+                let hash = repo.tags.get(name).unwrap();
+                
                 println!(" * {name} -> {hash}");
             }
         },
@@ -122,10 +124,12 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                     );
                 }
                 else if keep_going {
-                    println!("Warning: tag {name:?} does not exist in the repository. Continuing...");
+                    eprintln!("Tag {name:?} does not exist. Continuing...");
                 }
                 else {
-                    bail!("tag {name:?} does not exist in the repository.");
+                    eprintln!("Tag {name:?} does not exist. Aborting...");
+
+                    break;
                 }
             }
         },
@@ -145,7 +149,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 );
             }
             else {
-                bail!("tag {old:?} does not exist in the repository.")
+                eprintln!("Tag {old:?} does not exist.");
             }
         }
     }

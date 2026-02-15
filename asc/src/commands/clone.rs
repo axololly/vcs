@@ -51,6 +51,8 @@ fn check_dir_is_empty(path: &Path) -> Result<bool> {
 pub async fn parse(args: Args) -> Result<()> {
     if !args.allow_not_empty && !check_dir_is_empty(&args.path)? {
         eprintln!("Cannot make repository at {} (not empty)", args.path.display());
+
+        return Ok(());
     }
 
     let remote = Remote::from_url(&args.url)?;
@@ -81,7 +83,7 @@ pub async fn parse(args: Args) -> Result<()> {
         .current_branch()
         .unwrap_or("none");
 
-    println!("Cloned repository {:?} ({:?})", repo.project_name, repo.project_code);
+    println!("Cloned repository {:?}", repo.project_name);
     println!("Commits: {}", repo.history.size());
     println!("Blobs: {blobs}");
     println!("Branch: {current_branch} ({})", repo.current_hash);

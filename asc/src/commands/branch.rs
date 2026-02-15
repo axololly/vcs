@@ -1,10 +1,9 @@
-use clap::Subcommand;
 use color_eyre::owo_colors::OwoColorize;
-use eyre::{Result, bail};
+use eyre::Result;
 
-use libasc::{action::Action, repository::Repository, unwrap};
+use libasc::{action::Action, filter_with_glob, repository::Repository};
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 pub enum Subcommands {
     /// List what branch you are currently on.
     Current,
@@ -49,6 +48,9 @@ pub enum Subcommands {
     /// List all the branches in the repository.
     #[command(visible_alias = "ls")]
     List {
+        /// Globs to filter the search.
+        globs: Option<Vec<String>>,
+
         /// Include the hashes each branch points to.
         #[arg(short, long)]
         verbose: bool
@@ -79,7 +81,9 @@ pub fn parse(command: Subcommands) -> Result<()> {
             };
             
             if repo.branches.contains(&name) {
-                bail!("branch {name:?} already exists.");
+                eprintln!("Branch {name:?} already exists.");
+
+                return Ok(());
             }
 
             if let Some(branch_name) = repo.branch_from_hash(base_version) {
@@ -103,7 +107,9 @@ pub fn parse(command: Subcommands) -> Result<()> {
             let version = repo.normalise_version(&new)?;
 
             let Some(previous) = repo.branches.remove(&name) else {
-                bail!("branch {new:?} does not exist in this repository.");
+                eprintln!("Branch {new:?} does not exist.");
+
+                return Ok(());
             };
 
             repo.branches.create(name.clone(), version);
@@ -118,10 +124,11 @@ pub fn parse(command: Subcommands) -> Result<()> {
         }
 
         Rename { old, new } => {
-            let commit_hash = unwrap!(
-                repo.branches.remove(&old),
-                "branch {old:?} does not exist"
-            );
+            let Some(commit_hash) = repo.branches.remove(&old) else {
+                eprintln!("Branch {old:?} does not exist.");
+
+                return Ok(());
+            };
 
             println!("Renamed: {old} -> {new}");
 
@@ -138,7 +145,9 @@ pub fn parse(command: Subcommands) -> Result<()> {
 
         Delete { name } => {
             let Some(was_pointing_to) = repo.branches.remove(&name) else {
-                bail!("branch {name:?} does not exist");
+                eprintln!("Branch {name:?} does not exist.");
+
+                return Ok(());
             };
 
             println!("Branch {name:?} no longer points to {was_pointing_to}.");
@@ -151,12 +160,20 @@ pub fn parse(command: Subcommands) -> Result<()> {
             );
         }
 
-        List { verbose } => {
+        List { globs, verbose } => {
             if repo.is_head_detached() {
                 println!("{}", format!(" * HEAD detached at {}", repo.current_hash).bright_green());
             }
 
-            for (branch_name, &commit_hash) in repo.branches.iter() {
+            let globs = globs.unwrap_or(vec!["**/*".to_string()]);
+
+            let branch_names: Vec<&String> = repo.branches.names().collect();
+
+            let valid = filter_with_glob(globs, &branch_names);
+
+            for branch_name in valid {
+                let commit_hash = *repo.branches.get(branch_name).unwrap();
+                
                 let mut s = format!(" * {branch_name}");
 
                 if verbose {

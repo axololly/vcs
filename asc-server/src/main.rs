@@ -15,8 +15,6 @@ macro_rules! error {
 }
 
 async fn run() -> Result<()> {
-    stable_eyre::install()?;
-
     let args: Vec<_> = std::env::args().skip(1).collect();
 
     let Some(repo_path) = args.first() else {
@@ -39,7 +37,9 @@ fn save_error(error: &Report) {
         let _ = now.split_off(i);
     }
 
-    let name = format!("asc-server-{}", now);
+    let now = now.replace(' ', "_");
+
+    let name = format!("asc-server_{}", now);
 
     let Some(dirs) = BaseDirs::new() else {
         eprintln!("Failed to identify user directories through `directories` crate.");
@@ -51,7 +51,7 @@ fn save_error(error: &Report) {
 
     let result = fs::write(
         &log_path,
-        format!("{error:?}")
+        format!("{error:?}\n")
     );
 
     match result {
@@ -62,6 +62,8 @@ fn save_error(error: &Report) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    stable_eyre::install()?;
+    
     if let Err(e) = run().await {
         save_error(&e);
 

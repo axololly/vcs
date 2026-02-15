@@ -1,8 +1,7 @@
 use std::{collections::VecDeque, path::PathBuf, rc::Rc};
 
 use chrono::{DateTime, Utc};
-use clap::Args as A;
-use eyre::{Result, bail};
+use eyre::Result;
 use unicode_width::UnicodeWidthStr;
 
 use libasc::{hash::ObjectHash, repository::Repository, unwrap};
@@ -10,7 +9,7 @@ use libasc::{hash::ObjectHash, repository::Repository, unwrap};
 // TODO: write your own
 use blame_rs::{BlameRevision, blame};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The path to perform the blame on.
     path: PathBuf
@@ -36,7 +35,7 @@ pub fn parse(args: Args) -> Result<()> {
     let path = &args.path;
 
     if !repo.staged_files.contains(path) {
-        bail!("path {} is not staged in the repository", path.display());
+        eprintln!("Path {} is not staged in the repository.", path.display());
     }
 
     let mut queue: VecDeque<ObjectHash> = VecDeque::new();

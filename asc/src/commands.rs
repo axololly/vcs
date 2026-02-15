@@ -14,9 +14,12 @@ mod ls;
 mod merge;
 mod modify;
 mod mv;
+mod pull;
+mod push;
 mod redo;
 mod remote;
 mod remove;
+mod show;
 mod stash;
 mod switch;
 mod tag;
@@ -121,7 +124,16 @@ pub enum Commands {
     Remote(remote::Subcommands),
 
     /// Clone a repository from a URL.
-    Clone(clone::Args)
+    Clone(clone::Args),
+
+    /// Show information about a snashot.
+    Show(show::Args),
+
+    /// Push changes to another repository.
+    Push(push::Args),
+
+    /// Pull changes from another repository.
+    Pull(pull::Args)
 }
 
 pub fn run() -> eyre::Result<()> {
@@ -155,6 +167,9 @@ pub fn run() -> eyre::Result<()> {
         Tag(subcommand) => tag::parse(subcommand),
         User(subcommand) => user::parse(subcommand),
         Remote(subcommand) => remote::parse(subcommand),
-        Clone(args) => clone::parse(args)
+        Clone(args) => clone::parse(args),
+        Show(args) => show::parse(args),
+        Push(args) => push::parse(args),
+        Pull(args) => pull::parse(args)
     }
 }

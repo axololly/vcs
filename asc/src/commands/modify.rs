@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use clap::Args as A;
-use eyre::{Result, bail};
+use eyre::Result;
 
 use libasc::{hash::ObjectHash, repository::Repository, unwrap};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The snapshot hash to modify.
     hash: String,
@@ -77,10 +76,11 @@ fn update_recursively(
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    unwrap!(
-        repo.current_user(),
-        "no valid user is set for this repository."
-    );
+    if repo.current_user().is_none() {
+        eprintln!("No valid user is set for this repository.");
+
+        return Ok(());
+    }
 
     let version = repo.normalise_hash(&args.hash)?;
 
@@ -89,13 +89,16 @@ pub fn parse(args: Args) -> Result<()> {
     snapshot.verify()?;
 
     if let Some(author) = args.author {
-        let new_owner = unwrap!(
-            repo.users.get_user(&author),
-            "no user by the name of {author:?} in the repository."
-        );
+        let Some(new_owner) = repo.users.get_user(&author) else {
+            eprintln!("No user called {author:?} found.");
+
+            return Ok(());
+        };
 
         if new_owner.private_key.is_none() {
-            bail!("cannot rename author of commit to user {:?} (no private key)", new_owner.name);
+            eprintln!("Cannot rename author of commit to user {:?} (no private key for new owner)", new_owner.name);
+
+            return Ok(());
         }
 
         snapshot.author = new_owner.public_key;

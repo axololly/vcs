@@ -64,8 +64,8 @@ impl<T: Clone> NamedItems<T> {
         self.inner.into_iter()
     }
 
-    pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.inner.keys().map(|s| s.as_str())
+    pub fn names(&self) -> impl Iterator<Item = &String> {
+        self.inner.keys()
     }
 
     pub fn values(&self) -> impl Iterator<Item = &T> {
@@ -313,6 +313,10 @@ impl Repository {
                 self.tags.create(name, hash);
             },
 
+            MoveTag { name, new, .. } => {
+                self.tags.create(name, new);
+            },
+
             RemoveTag { name, .. } => {
                 self.tags.remove(&name);
             },
@@ -379,6 +383,7 @@ impl Repository {
 
             CreateTag { name, hash } => RemoveTag { name, hash },
             RemoveTag { name, hash } => CreateTag { name, hash },
+            MoveTag { name, old, new } => MoveTag { name, old: new, new: old },
             RenameTag { old, new, hash } => RenameTag { old: new, new: old, hash },
 
             OpenAccount { id, name } => CloseAccount { id, name },
@@ -814,6 +819,8 @@ impl Repository {
     /// Save a snapshot as a compressed blob to disk.
     pub fn save_snapshot(&mut self, mut snapshot: Snapshot) -> Result<()> {
         snapshot.rehash();
+
+        self.history.insert_orphan(snapshot.hash);
 
         for &parent in &snapshot.parents {
             self.history.insert(snapshot.hash, parent);

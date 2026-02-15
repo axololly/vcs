@@ -1,9 +1,8 @@
-use clap::Args as A;
 use eyre::Result;
 
 use libasc::repository::Repository;
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// Redo all actions. Overrides '--count'.
     #[arg(long)]
