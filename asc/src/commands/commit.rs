@@ -30,10 +30,14 @@ pub fn parse(args: Args) -> Result<()> {
 
     if !repo.has_unsaved_changes()? {
         eprintln!("No changes to document in the upcoming commit.");
+
+        return Ok(());
     }
 
     if repo.staged_files.is_empty() {
         eprintln!("No files are being tracked - empty snapshots are disallowed.");
+
+        return Ok(());
     }
 
     let message = if let Some(msg) = args.message {

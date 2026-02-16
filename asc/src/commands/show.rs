@@ -50,8 +50,8 @@ pub fn parse(args: Args) -> Result<()> {
     if !snapshot.files.is_empty() {
         println!("Files:");
 
-        for path in snapshot.files.keys() {
-            println!(" * {}", path.display());
+        for (path, hash) in snapshot.files {
+            println!(" * {} ({hash})", path.display());
         }
     }
     else {

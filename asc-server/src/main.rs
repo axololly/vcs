@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
     if let Err(e) = run().await {
         save_error(&e);
 
-        error!("Encountered error while running: {e}");
+        error!("Encountered error while running: {e:?}");
     }
 
     Ok(())

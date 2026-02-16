@@ -1,9 +1,9 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, path::Path};
+use std::{collections::{HashMap, HashSet, VecDeque}, fs, path::Path};
 
 use eyre::{Result, eyre};
 use serde_bytes::ByteBuf;
 
-use crate::{compress_data, content::Content, decompress_data, hash::ObjectHash, key::{PrivateKey, Signature}, repository::Repository, sync::{remote::Remote, stream::Stream, utils::{get_server_secret, Object, Repo, ServerSecret}}};
+use crate::{compress_data, content::Content, decompress_data, hash::ObjectHash, key::{PrivateKey, Signature}, repository::Repository, sync::{remote::Remote, stream::Stream, utils::{Object, Repo, ServerSecret, get_server_secret}}, unwrap};
 
 pub fn fetch_repo_objecs(repo: &Repository) -> Result<HashMap<ObjectHash, Object>> {
     let mut objects = HashMap::new();
@@ -11,15 +11,9 @@ pub fn fetch_repo_objecs(repo: &Repository) -> Result<HashMap<ObjectHash, Object
     let mut queue = VecDeque::new();
     let mut hashes_seen = HashSet::new();
 
-    for &hash in repo.tags.values() {
-        let snapshot = repo.fetch_snapshot(hash)?;
-        
-        hashes_seen.insert(hash);
-
-        objects.insert(hash, Object::Commit(Box::new(snapshot)));
-    }
-
     queue.extend(repo.branches.values().cloned());
+
+    queue.extend(repo.tags.values().cloned());
 
     while let Some(hash) = queue.pop_front() {
         if hashes_seen.contains(&hash) {
@@ -32,6 +26,8 @@ pub fn fetch_repo_objecs(repo: &Repository) -> Result<HashMap<ObjectHash, Object
             let snapshot = repo.fetch_snapshot(hash)?;
 
             queue.extend(snapshot.parents.iter().cloned());
+
+            queue.extend(snapshot.files.values().cloned());
 
             objects.insert(hash, Object::Commit(Box::new(snapshot)));
         }
@@ -86,9 +82,17 @@ pub async fn handle_clone_as_client(
 
     repo.users = stream.receive().await?;
 
-    let main_user = repo.users.get_user_mut(&user_key.public_key()).unwrap();
+    {
+        let main_user = repo.users.get_user_mut(&user_key.public_key()).unwrap();
 
-    main_user.private_key = Some(user_key);
+        main_user.private_key = Some(user_key);
+    
+        repo.current_user.clear_poison();
+    
+        let mut lock = repo.current_user.write().unwrap();
+        
+        *lock = Some(main_user.public_key);
+    }
 
     repo.remotes.create("origin".to_string(), remote);
 
@@ -98,13 +102,31 @@ pub async fn handle_clone_as_client(
 
     let objects: HashMap<ObjectHash, Object> = rmp_serde::from_slice(&decompressed)?;
 
-    println!("received {} objects ({:?})", objects.len(), objects.keys().collect::<Vec<_>>());
-
     for (hash, object) in objects {
         match object {
             Object::Commit(snapshot) => repo.save_snapshot(*snapshot)?,
             Object::Content(content) => repo.save_content_object(content, hash)?
         }
+    }
+
+    repo.save()?;
+
+    let current = repo.fetch_current_snapshot()?;
+
+    repo.staged_files = current.files
+        .keys()
+        .cloned()
+        .collect();
+
+    for (path, content_hash) in current.files {
+        let full_path = repo.root_dir.join(path);
+
+        let content = repo.fetch_string_content(content_hash)?;
+
+        unwrap!(
+            fs::write(&full_path, content),
+            "could not write to {}", full_path.display()
+        );
     }
 
     repo.save()?;

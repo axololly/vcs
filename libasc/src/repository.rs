@@ -97,7 +97,7 @@ pub struct Repository {
     pub users: Users,
     pub remotes: NamedItems<Remote>,
 
-    current_user: Arc<RwLock<Option<PublicKey>>>
+    pub(crate) current_user: Arc<RwLock<Option<PublicKey>>>
 }
 
 impl Repository {
@@ -660,16 +660,17 @@ impl Repository {
         self.history.to_file(content_dir.join("tree"))?;
 
         let mut index: Vec<PathBuf> = vec![];
-        let cwd = Path::new(".").canonicalize()?;
         
         for path in &self.staged_files {
+            let path = self.root_dir.join(path);
+
             let full = unwrap!(
                 path.canonicalize(),
                 "failed to canonicalise path: {}",
                 path.display()
             );
 
-            let relative = pathdiff::diff_paths(full, &cwd).unwrap();
+            let relative = pathdiff::diff_paths(full, &self.root_dir).unwrap();
 
             index.push(relative);
         }
@@ -853,7 +854,10 @@ impl Repository {
         let mut files = BTreeMap::new();
         
         for path in &self.staged_files {
-            let content = fs::read_to_string(path)?;
+            let content = unwrap!(
+                fs::read_to_string(path),
+                "could not read from path: {}", path.display()
+            );
 
             let hash = self.save_content(&content, base_files.get(path).cloned())?;
 
@@ -936,7 +940,7 @@ impl Repository {
     }
 
     /// Replace the state of the current working directory with that
-    /// from another [`Snapshot`], but **DO NOT** check if there are
+    /// from a set of files, but **DO NOT** check if there are
     /// unsaved changes.
     /// 
     /// For a safer alternative, use [`Repository::replace_cwd_with_snapshot`].
