@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use eyre::Result;
-use libasc::{action::Action, repository::Repository, sync::{client::Client, pull::{BranchPullResult, PullResult, TagPullResult}, remote::Remote}};
+use libasc::{action::Action, repository::Repository, sync::{client::Client, pull::{BranchPullResult, PullResult, TagPullResult}}};
 use tokio::sync::Mutex;
 
 #[derive(clap::Args)]
@@ -11,12 +11,6 @@ pub struct Args {
 
     // The branch to push. TODO
     // branch: Option<String>
-}
-
-async fn pull_from(remote: Remote, repo: Arc<Mutex<Repository>>) -> Result<Vec<PullResult>> {
-    let mut client = Client::connect(remote).await?;
-
-    client.make_pull(repo).await
 }
 
 #[tokio::main]
@@ -34,7 +28,13 @@ pub async fn parse(args: Args) -> Result<()> {
 
         println!("Pulling from: {name}");
 
-        let results = pull_from(remote, repo_arc.clone()).await?;
+        let mut client = Client::connect(remote).await?;
+
+        let results = client.make_pull(repo_arc.clone()).await?;
+
+        println!("Sent: {} | Received: {}", client.bytes_sent(), client.bytes_recv());
+
+        println!();
 
         println!("Results: ");
 

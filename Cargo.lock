@@ -134,13 +134,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "asc-test"
-version = "0.1.0"
-dependencies = [
- "libasc",
-]
-
-[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"

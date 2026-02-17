@@ -24,6 +24,8 @@ Categories are as follows:
 - The ability to move branches with `asc branch mv` (does the equivalent of deleting and recreating the branch)
 - `asc remote` lets you interact with remote URLs in the repository
 - `asc history` can filter for snapshots that change a file, or are before/after a given datetime
+- Added commands for cloning, pushing and pulling
+    - These also list how many bytes were sent and received
 
 ### Changed
 

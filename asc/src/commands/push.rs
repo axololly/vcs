@@ -32,6 +32,10 @@ pub async fn parse(args: Args) -> Result<()> {
 
         let results = client.make_push(repo_arc.clone()).await?;
 
+        println!("Sent: {} | Received: {}", client.bytes_sent(), client.bytes_recv());
+
+        println!();
+
         println!("Results: ");
 
         for result in results {

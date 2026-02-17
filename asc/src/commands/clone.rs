@@ -76,6 +76,8 @@ pub async fn parse(args: Args) -> Result<()> {
         .unwrap_or("none");
 
     println!("Cloned repository {:?}", repo.project_name);
+    println!("Sent: {} | Received: {}", client.bytes_sent(), client.bytes_recv());
+    println!();
     println!("Commits: {}", repo.history.size());
     println!("Blobs: {blobs}");
     println!("Branch: {current_branch} ({})", repo.current_hash);

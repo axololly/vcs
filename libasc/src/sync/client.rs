@@ -8,31 +8,41 @@ use crate::{key::PrivateKey, repository::Repository, sync::{clone::handle_clone_
 
 type Repo = Arc<Mutex<Repository>>;
 
-pub enum Connection {
+enum InnerConnection {
     Ssh(ChildProcessStream),
     File(LocalStream)
+}
+
+pub struct Connection {
+    inner: InnerConnection,
+    read_bytes: usize,
+    written_bytes: usize
 }
 
 #[async_trait]
 impl Stream for Connection {
     async fn raw_read(&mut self, n: usize) -> io::Result<Vec<u8>> {
-        match self {
-            Self::Ssh(stream) => stream.raw_read(n).await,
-            Self::File(stream) => stream.raw_read(n).await
+        self.read_bytes += n;
+        
+        match &mut self.inner {
+            InnerConnection::Ssh(stream) => stream.raw_read(n).await,
+            InnerConnection::File(stream) => stream.raw_read(n).await
         }
     }
 
     async fn raw_write(&mut self, bytes: &[u8]) -> io::Result<()> {
-        match self {
-            Self::Ssh(stream) => stream.raw_write(bytes).await,
-            Self::File(stream) => stream.raw_write(bytes).await
+        self.written_bytes += bytes.len();
+
+        match &mut self.inner {
+            InnerConnection::Ssh(stream) => stream.raw_write(bytes).await,
+            InnerConnection::File(stream) => stream.raw_write(bytes).await
         }
     }
 
     async fn close(&mut self) -> io::Result<()> {
-        match self {
-            Self::Ssh(stream) => stream.close().await,
-            Self::File(stream) => stream.close().await
+        match &mut self.inner {
+            InnerConnection::Ssh(stream) => stream.close().await,
+            InnerConnection::File(stream) => stream.close().await
         }
     }
 }
@@ -71,7 +81,11 @@ impl Client {
             ssh.wait().await
         });
 
-        let conn = Connection::Ssh(stream);
+        let conn = Connection {
+            inner: InnerConnection::Ssh(stream),
+            read_bytes: 0,
+            written_bytes: 0
+        };
 
         let remote = Remote::Ssh(remote);
 
@@ -92,7 +106,11 @@ impl Client {
             ).await
         });
 
-        let conn = Connection::File(stream);
+        let conn = Connection {
+            inner: InnerConnection::File(stream),
+            read_bytes: 0,
+            written_bytes: 0
+        };
 
         let remote = Remote::File(remote);
 
@@ -134,5 +152,16 @@ impl Client {
         ).await?;
 
         Repository::load_from(local_repo_path)
+    }
+
+    // TODO: allow this to be hooked into, so that data transfer
+    // can be reported live?
+    
+    pub fn bytes_sent(&self) -> usize {
+        self.conn.written_bytes
+    }
+
+    pub fn bytes_recv(&self) -> usize {
+        self.conn.read_bytes
     }
 }
