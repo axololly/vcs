@@ -814,7 +814,13 @@ impl Repository {
 
     /// Save a [`Content`] object, most likely obtained from network transfer.
     pub fn save_content_object(&self, object: Content, hash: ObjectHash) -> Result<()> {
-        save_as_msgpack(&object, self.hash_to_path(hash))
+        let path = self.hash_to_path(hash);
+
+        if path.exists() {
+            return Ok(());
+        }
+        
+        save_as_msgpack(&object, path)
     }
 
     /// Save a snapshot as a compressed blob to disk.

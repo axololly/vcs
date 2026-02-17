@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use eyre::Result;
-use libasc::{key::PrivateKey, repository::Repository, sync::{client::Client, remote::Remote}, unwrap};
+use libasc::{key::PrivateKey, sync::{client::Client, remote::Remote}, unwrap};
 
 #[derive(clap::Args)]
 pub struct Args {
     /// The repository to clone.
+    /// Can be `ssh` or `file`
     url: String,
 
     /// Where to clone the repository to.
@@ -15,11 +16,6 @@ pub struct Args {
     /// server with.
     #[arg(long)]
     login_key: String,
-
-    /// The path to the SSH executable to
-    /// use instead of `ssh`.
-    #[arg(long)]
-    ssh_command: Option<String>,
 
     /// Create the repository, even if
     /// the directory is not empty.
@@ -62,14 +58,10 @@ pub async fn parse(args: Args) -> Result<()> {
 
         PrivateKey::from_bytes(&bytes)?
     };
-
-    let ssh_command: Option<&str> = args.ssh_command.as_deref();
     
-    let mut client = Client::connect(remote, ssh_command).await?;
+    let mut client = Client::connect(remote).await?;
 
-    client.clone_repo(&args.path, user_key).await?;
-
-    let repo = Repository::load_from(&args.path)?;
+    let repo = client.clone_repo(&args.path, user_key).await?;
 
     let mut blobs = 0;
 

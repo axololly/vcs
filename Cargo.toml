@@ -4,5 +4,6 @@ members = [
     "libasc",
     "asc-server",
     "asc-shell",
-    "asc"
+    "asc",
+    "asc-test"
 ]

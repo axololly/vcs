@@ -8,7 +8,3 @@
 - Add repository-level config and user-level config, customising things like default branch name
 
 - Add bare repositories, probably by equating `main_dir` and `root_dir`
-
-- Add storing SSH URLs as remotes
-
-- Allow `Client` in `sync` to bind to any process instead of just an SSH one

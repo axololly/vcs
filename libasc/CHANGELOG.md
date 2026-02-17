@@ -30,7 +30,8 @@ Categories are as follows:
 - Added `Repository::validate_state` to ensure that all hashes are correct and their order is intact
 - Added more actions like `Action::MoveBranch`
 - Added pulling, pushing and cloning operations, as well as `handle_server` and a dedicated `Client` to connect over SSH
-- Added a dedicated `Remote` type
+- Added a dedicated `Remote` enum that supports both `file://` and `ssh://` URLs
+- Added a unifying type `Connection` over `ChildProcessStream` and `LocalStream` because `dyn` doesn't work with async traits
 
 ### Changed
 
@@ -67,6 +68,7 @@ Categories are as follows:
 - `Repository::save_string_content` previously saved it as a `&str`, but `Repository::fetch_string_content` would have loaded it as a `Content`
 - `Repository::replace_cwd_with_snapshot` did not update `Repository::staged_files`, causing errors when saving due to missing content
 - Fixed a really really unsound use of `transmute`
+- Fixed a bug where a delta could be stored that pointed to itself
 
 ### Removed
 

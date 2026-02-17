@@ -14,7 +14,7 @@ pub struct Args {
 }
 
 async fn pull_from(remote: Remote, repo: Arc<Mutex<Repository>>) -> Result<Vec<PullResult>> {
-    let mut client = Client::connect(remote, None).await?;
+    let mut client = Client::connect(remote).await?;
 
     client.make_pull(repo).await
 }
