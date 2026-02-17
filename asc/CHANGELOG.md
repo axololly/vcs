@@ -43,3 +43,4 @@ Categories are as follows:
 - Fixed display of `asc log`
 - Previously used SHA1 while `libasc` used SHA2
 - `asc modify` rehashes its children like Git does
+- `asc pull` and `asc push` were repeating what `libasc` was doing (moving branches, logging actions, etc), causing the branch pointers to be updated incorrectly

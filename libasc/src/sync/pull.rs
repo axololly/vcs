@@ -103,7 +103,11 @@ pub async fn server_serve_objects(
 pub enum BranchPullResult {
     NotOnRemote,
     UpToDate,
-    FastForward(Graph, ObjectHash),
+
+    // (new history, old hash, new hash)
+    FastForward(Graph, ObjectHash, ObjectHash),
+
+    // (new history, local tip, remote tip)
     Conflict(Graph, ObjectHash, ObjectHash)
 }
 
@@ -160,7 +164,7 @@ pub async fn client_pull_one_branch(
     branch.extend(&changes);
 
     if branch.is_descendant(remote_tip, local_tip)? {
-        Ok(BranchPullResult::FastForward(branch, remote_tip))
+        Ok(BranchPullResult::FastForward(branch, local_tip, remote_tip))
     }
     else {
         Ok(BranchPullResult::Conflict(branch, local_tip, remote_tip))
@@ -197,7 +201,11 @@ pub async fn handle_pull_as_client(
             BranchPullResult::NotOnRemote => {},
             BranchPullResult::UpToDate => {},
 
-            BranchPullResult::FastForward(graph, remote_tip) => {
+            BranchPullResult::FastForward(graph, local_tip, remote_tip) => {
+                if repo.current_hash == *local_tip {
+                    repo.current_hash = *remote_tip;
+                }
+                
                 repo.history.extend(graph);
 
                 let old = *repo.branches.get(&name).unwrap();
@@ -214,9 +222,13 @@ pub async fn handle_pull_as_client(
             }
 
             BranchPullResult::Conflict(graph, local_tip, remote_tip) => {
+                if repo.current_hash == *local_tip {
+                    repo.current_hash = *remote_tip;
+                }
+                
                 repo.history.extend(graph);
 
-                repo.branches.create(format!("{name}-local"), *local_tip);
+                repo.branches.create(format!("local/{name}"), *local_tip);
                 
                 repo.branches.create(name.clone(), *remote_tip);
 
@@ -230,7 +242,7 @@ pub async fn handle_pull_as_client(
 
                 repo.action_history.push(
                     Action::CreateBranch {
-                        name: format!("{name}-local"),
+                        name: format!("local/{name}"),
                         hash: *local_tip
                     }
                 );

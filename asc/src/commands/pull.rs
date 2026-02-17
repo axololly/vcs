@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use eyre::Result;
-use libasc::{action::Action, repository::Repository, sync::{client::Client, pull::{BranchPullResult, PullResult, TagPullResult}}};
+use libasc::{repository::Repository, sync::{client::Client, pull::{BranchPullResult, PullResult, TagPullResult}}};
 use tokio::sync::Mutex;
 
 #[derive(clap::Args)]
@@ -45,48 +45,11 @@ pub async fn parse(args: Args) -> Result<()> {
                     
                     BranchPullResult::UpToDate => format!(" * Branch {name:?} is up-to-date"),
                     
-                    BranchPullResult::FastForward(new_history, new_tip) => {
-                        let mut repo = repo_arc.lock().await;
-
-                        repo.history.extend(&new_history);
-
-                        let old_tip = repo.branches.create(name.clone(), new_tip).unwrap();
-
-                        repo.action_history.push(
-                            Action::MoveBranch {
-                                name: name.clone(),
-                                old: old_tip,
-                                new: new_tip
-                            }
-                        );
-
+                    BranchPullResult::FastForward(_, old_tip, new_tip) => {
                         format!(" * Fast-forwarded {name} ({old_tip} -> {new_tip})")
                     },
 
-                    BranchPullResult::Conflict(new_history, old_tip, new_tip) => {
-                        let mut repo = repo_arc.lock().await;
-
-                        repo.history.extend(&new_history);
-
-                        repo.branches.create(name.clone(), new_tip);
-
-                        repo.action_history.push(
-                            Action::MoveBranch {
-                                name: name.clone(),
-                                old: old_tip,
-                                new: new_tip
-                            }
-                        );
-
-                        repo.branches.create(format!("local/{name}"), old_tip);
-
-                        repo.action_history.push(
-                            Action::CreateBranch {
-                                name: format!("local/{name}"),
-                                hash: old_tip
-                            }
-                        );
-
+                    BranchPullResult::Conflict(..) => {
                         format!(" ! Branch {name} diverges with remote - local version is renamed to `local/{name}`")
                     }
                 },
@@ -94,28 +57,7 @@ pub async fn parse(args: Args) -> Result<()> {
                 PullResult::Tag(name, result) => match result {
                     TagPullResult::New(hash) => format!(" * Tag {name:?} ({hash}) received from remote"),
 
-                    TagPullResult::Conflict(local, remote) => {
-                        let mut repo = repo_arc.lock().await;
-                        
-                        repo.tags.create(name.clone(), remote);
-
-                        repo.action_history.push(
-                            Action::MoveTag {
-                                name: name.clone(),
-                                old: local,
-                                new: remote
-                            }
-                        );
-
-                        repo.tags.create(format!("local/{name}"), local);
-
-                        repo.action_history.push(
-                            Action::CreateTag {
-                                name: format!("local/{name}"),
-                                hash: local
-                            }
-                        );
-
+                    TagPullResult::Conflict(..) => {
                         format!(" ! Tag {name:?} diverges from remote - local version is renamed to `local/{name}`")
                     }
                 }
