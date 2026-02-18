@@ -1,5 +1,7 @@
 use eyre::Result;
-use libasc::repository::Repository;
+use libasc::{content::{Content, Delta}, repository::Repository, snapshot::Snapshot};
+use similar::TextDiff;
+use size::{Base, Size};
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -7,14 +9,11 @@ pub struct Args {
     version: String
 }
 
-pub fn parse(args: Args) -> Result<()> {
-    let repo = Repository::load()?;
-
-    let version = repo.normalise_version(&args.version)?;
-
-    let snapshot = repo.fetch_snapshot(version)?;
-
-    let parents: Vec<_> = snapshot.parents.iter().map(|hash| format!("{hash:?}")).collect();
+fn display_snapshot(snapshot: Snapshot, repo: &Repository) {
+    let parents: Vec<_> = snapshot.parents
+        .iter()
+        .map(|hash| format!("{hash:?}"))
+        .collect();
 
     let author = repo.users
         .get_user(&snapshot.author)
@@ -56,6 +55,62 @@ pub fn parse(args: Args) -> Result<()> {
     }
     else {
         println!("Files: none");
+    }
+}
+
+fn format_size(n: usize) -> String {
+    let size = Size::from_bytes(n);
+
+    size.format()
+        .with_base(Base::Base10)
+        .to_string()
+}
+
+fn display_content(content: Content, repo: &Repository) -> Result<()> {
+    let text = content.resolve(repo)?;
+
+    let kind = match &content {
+        Content::Literal(data) => {
+            format!("Literal, size compressed: {}", format_size(data.len()))
+        }
+        
+        Content::Delta(Delta { original, edit }) => {
+            let basis = repo.fetch_string_content(*original)?;
+
+            let diff = TextDiff::from_lines(&basis, &text);
+
+            let similarity = diff.ratio();
+
+            format!(
+                "Delta based on {original}, edit size: {}, similarity: {similarity}%",
+                format_size(edit.len())
+            )
+        }
+    };
+
+    println!("---");
+    println!("{kind}");
+    println!("Size: {}", format_size(text.len()));
+    println!("---");
+    println!("{text}");
+
+    Ok(())
+}
+
+pub fn parse(args: Args) -> Result<()> {
+    let repo = Repository::load()?;
+
+    let version = repo.normalise_version(&args.version)?;
+
+    if repo.history.contains(version) {
+        let snapshot = repo.fetch_snapshot(version)?;
+
+        display_snapshot(snapshot, &repo);
+    }
+    else {
+        let content = repo.fetch_content_object(version)?;
+
+        display_content(content, &repo)?;
     }
     
     Ok(())

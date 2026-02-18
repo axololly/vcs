@@ -26,6 +26,7 @@ Categories are as follows:
 - `asc history` can filter for snapshots that change a file, or are before/after a given datetime
 - Added commands for cloning, pushing and pulling
     - These also list how many bytes were sent and received
+- Added viewing content blobs as well as snapshots with `asc show`
 
 ### Changed
 

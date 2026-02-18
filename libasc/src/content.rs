@@ -9,7 +9,7 @@ pub struct Delta {
     pub original: ObjectHash,
     
     #[serde(with = "serde_bytes")]
-    pub edit: Vec<u8>
+    pub edit: Vec<u8>,
 }
 
 impl Delta {
@@ -26,7 +26,7 @@ impl Delta {
     }
 
     pub fn new(old: &str, new: &str, min_similarity: f32) -> Option<Delta> {
-        let diff = TextDiff::from_words(old, new);
+        let diff = TextDiff::from_lines(old, new);
 
         (diff.ratio() >= min_similarity).then(|| {
             Delta::new_unchecked(old, new)
@@ -42,7 +42,7 @@ pub enum Content {
 
 impl Content {
     /// Obtain a `String` from [`Content`] by potentially resolving deltas.
-    pub fn resolve(self, repo: &Repository) -> Result<String> {
+    pub fn resolve(&self, repo: &Repository) -> Result<String> {
         Ok(match self {
             Self::Literal(compressed) => {
                 let decompressed = decompress_data(compressed)?;

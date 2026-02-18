@@ -61,6 +61,7 @@ Categories are as follows:
 - Renamed `SshStream` to `ChildProcessStream` and removed the `async_ssh2_tokio` dependency
 - Restricted `Repository::fetch_content_object` to crate-only
 - Replaced `Repository::replace_cwd_with_snapshot` with `Repository::replace_cwd_with_files`, because only the `files` of the original `Snapshot` were used
+- Resolving hashes now queries the file system instead of the graph
 
 ### Fixed
 

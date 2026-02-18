@@ -1,13 +1,12 @@
-use std::{collections::{BTreeMap, HashMap, HashSet, VecDeque}, env::current_dir, fs, io::Write, path::{Path, PathBuf}, sync::{Arc, RwLock}};
+use std::{collections::{BTreeMap, HashMap, HashSet, VecDeque}, env::current_dir, fs, io::Write, path::{Path, PathBuf}, str::FromStr, sync::{Arc, RwLock}};
 
-use crate::{action::{Action, ActionHistory}, change::FileChange, compress_data, content::{Content, Delta}, create_file, graph::Graph, hash::ObjectHash, hash_raw_bytes, key::PublicKey, open_file, remove_path, save_as_msgpack, set, snapshot::Snapshot, stash::Stash, sync::remote::Remote, trash::{Entry, Trash, TrashStatus}, unwrap, user::{User, Users}};
+use crate::{action::{Action, ActionHistory}, change::FileChange, compress_data, content::{Content, Delta}, create_file, graph::Graph, hash::ObjectHash, hash_raw_bytes, key::PublicKey, open_file, remove_path, resolve_wildcard_path, save_as_msgpack, set, snapshot::Snapshot, stash::Stash, sync::remote::Remote, trash::{Entry, Trash, TrashStatus}, unwrap, user::{User, Users}};
 
 use chrono::Utc;
 use expand_tilde::ExpandTilde;
-use eyre::{Result, bail};
+use eyre::{bail, eyre, Result};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use serde::{Deserialize, Serialize};
-use similar::TextDiff;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct NamedItems<T: Clone> {
@@ -238,39 +237,67 @@ impl Repository {
         self.ignore_matcher.matched(path, path.is_dir()).is_ignore()
     }
 
-    fn normalise_hash_internal(&self, iter: impl Iterator<Item = ObjectHash>, needle: &[u8]) -> Option<ObjectHash> {
-        for hash in iter {
-            let bytes: &[u8] = hash.as_bytes();
-
-            if bytes.starts_with(needle) {
-                return Some(hash);
-            }
-        }
-
-        None
-    }
-
     /// Convert a smaller hash in string form into its full [`ObjectHash`] version.
     /// 
-    /// This works only for snapshots. For identifying stash hashes, use
-    /// [`Repository::normalise_stash_hash`].
+    /// This works for snapshots and content blobs.
     pub fn normalise_hash(&self, raw_hash: &str) -> Result<ObjectHash> {
-        let as_hex = hex::decode(raw_hash)?;
+        let (dir, file) = raw_hash.split_at(2);
 
-        if as_hex.is_empty() {
-            bail!("attempted to normalise empty snapshot hash.");
+        if dir.is_empty() {
+            bail!("expected input to normalise, got an empty string.");
         }
 
-        let commit_hashes = self
-            .history
-            .iter_hashes();
+        let mut glob = self.blobs_dir();
 
-        if let Some(normalised) = self.normalise_hash_internal(commit_hashes, &as_hex) {
-            Ok(normalised)
+        if dir.len() == 2 {
+            glob.push(dir);
         }
         else {
-            bail!("could not resolve hash: {raw_hash:?}");
+            glob.push(format!("{dir}*"));
         }
+
+        if file.len() == 30 {
+            glob.push(file);
+        }
+        else {
+            glob.push(format!("{file}*"));
+        }
+
+        let results = resolve_wildcard_path(&glob)?;
+
+        if results.is_empty() {
+            bail!("found no results when looking for {raw_hash:?} ({glob:?})");
+        }
+
+        if results.len() != 1 {
+            bail!("found multiple results when looking for {raw_hash:?} ({glob:?}) - {results:?}");
+        }
+
+        let path = &results[0];
+
+        let mut iter = path.components()
+            .rev()
+            .take(2);
+
+        let second = iter
+            .next()
+            .unwrap()
+            .as_os_str()
+            .to_str()
+            .expect("non-utf8 found in path");
+
+        let first = iter
+            .next()
+            .unwrap()
+            .as_os_str()
+            .to_str()
+            .expect("non-utf8 found in path");
+
+        let raw_hash = format!("{first}{second}");
+
+        let hash = ObjectHash::from_str(&raw_hash)?;
+
+        Ok(hash)
     }
 
     /// Convert a version in string form into its full [`ObjectHash`] version
@@ -279,6 +306,13 @@ impl Repository {
     pub fn normalise_version(&self, raw_version: &str) -> Result<ObjectHash> {
         if let Some(&corresponding_hash) = self.branches.get(raw_version) {
             Ok(corresponding_hash)
+        }
+        else if let Some((prefix, name)) = raw_version.split_once("tag:")
+            && prefix.split_whitespace().next().is_none()
+        {
+            self.tags.get(name)
+                .cloned()
+                .ok_or(eyre!("no tag called {name:?}"))
         }
         else {
             self.normalise_hash(raw_version)
@@ -716,7 +750,7 @@ impl Repository {
     }
 
     /// Fetch a [`Content`] object from the repository, addressed by its hash.
-    pub(crate) fn fetch_content_object(&self, content_hash: ObjectHash) -> Result<Content> {
+    pub fn fetch_content_object(&self, content_hash: ObjectHash) -> Result<Content> {
         let path = self.hash_to_path(content_hash);
 
         let raw = unwrap!(
@@ -784,13 +818,17 @@ impl Repository {
     pub fn save_content_delta(&self, content: &str, basis: ObjectHash) -> Result<Option<ObjectHash>> {
         let original = self.fetch_string_content(basis)?;
 
-        let diff = TextDiff::from_words(original.as_str(), content);
+        let hash = hash_raw_bytes(content);
 
-        if diff.ratio() < MIN_DELTA_SIMILARITY {
+        let Some(delta) = Delta::new(
+            &original,
+            content,
+            MIN_DELTA_SIMILARITY
+        ) else {
             return Ok(None);
-        }
+        };
 
-        let hash = self.save_content_delta_unchecked(content, basis)?;
+        self.save_content_object(Content::Delta(delta), hash)?;
 
         Ok(Some(hash))
     }
