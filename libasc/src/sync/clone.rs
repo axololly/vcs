@@ -119,7 +119,7 @@ pub async fn handle_clone_as_client(
         .collect();
 
     for (path, content_hash) in current.files {
-        let full_path = repo.root_dir.join(path);
+        let full_path = path.to_logical_path(&repo.root_dir);
 
         let content = repo.fetch_string_content(content_hash)?;
 

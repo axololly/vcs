@@ -1,11 +1,12 @@
-use std::{collections::{BTreeMap, HashMap, HashSet, VecDeque}, env::current_dir, fs, io::Write, path::{Path, PathBuf}, str::FromStr, sync::{Arc, RwLock}};
+use std::{collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque}, env::current_dir, fs, path::{Path, PathBuf}, str::FromStr, sync::{Arc, RwLock}};
 
-use crate::{action::{Action, ActionHistory}, change::FileChange, compress_data, content::{Content, Delta}, create_file, graph::Graph, hash::ObjectHash, hash_raw_bytes, key::PublicKey, open_file, remove_path, resolve_wildcard_path, save_as_msgpack, set, snapshot::Snapshot, stash::Stash, sync::remote::Remote, trash::{Entry, Trash, TrashStatus}, unwrap, user::{User, Users}};
+use crate::{action::{Action, ActionHistory}, change::FileChange, compress_data, content::{Content, Delta}, create_file, graph::Graph, hash::ObjectHash, hash_raw_bytes, key::PublicKey, load_as_msgpack, open_file, remove_path, resolve_wildcard_path, save_as_msgpack, set, snapshot::Snapshot, stash::Stash, sync::remote::Remote, trash::{Entry, Trash, TrashStatus}, unwrap, user::{User, Users}};
 
 use chrono::Utc;
 use expand_tilde::ExpandTilde;
 use eyre::{bail, eyre, Result};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use relative_path::{PathExt, RelativePathBuf};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -20,22 +21,18 @@ impl<T: Clone> NamedItems<T> {
         }
     }
 
-    /// Create a new named item.
     pub fn create(&mut self, name: String, value: T) -> Option<T> {
         self.inner.insert(name, value)
     }
 
-    /// Get the item a name refers to, if possible.
     pub fn get(&self, name: &str) -> Option<&T> {
         self.inner.get(name)
     }
 
-    /// Check if the name exists, regardless of privacy status.
     pub fn contains(&self, name: &str) -> bool {
         self.inner.contains_key(name)
     }
 
-    /// Rename an item.
     pub fn rename(&mut self, old: &str, new: String) -> bool {
         let Some(hash) = self.inner.remove(old) else {
             return false;
@@ -46,9 +43,24 @@ impl<T: Clone> NamedItems<T> {
         true
     }
     
-    /// Remove a name.
     pub fn remove(&mut self, name: &str) -> Option<T> {
         self.inner.remove(name)
+    }
+
+    // TODO: maybe add &T in case this isn't just used for HashMap<String, ObjectHash>
+    pub fn get_name_for(&self, item: T) -> Option<&str> where T: PartialEq<T> {
+        self.inner
+            .iter()
+            .find(|(_, value)| **value == item)
+            .map(|(name, _)| name.as_str())
+    }
+
+    pub fn get_names_for(&self, item: T) -> Vec<&str> where T: PartialEq<T> {
+        self.inner
+            .iter()
+            .filter(|(_, value)| **value == item)
+            .map(|(name, _)| name.as_str())
+            .collect()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&String, &T)> {
@@ -88,7 +100,7 @@ pub struct Repository {
     pub action_history: ActionHistory,
     pub branches: NamedItems<ObjectHash>,
     pub current_hash: ObjectHash,
-    pub staged_files: Vec<PathBuf>,
+    pub staged_files: Vec<RelativePathBuf>,
     pub ignore_matcher: Gitignore,
     pub stash: Stash,
     pub trash: Trash,
@@ -179,25 +191,7 @@ impl Repository {
     /// This is only found if the `current_hash` points to a branch tip.
     /// Any other snapshot will result in `None`.
     pub fn current_branch(&self) -> Option<&str> {
-        self.branch_from_hash(self.current_hash)
-    }
-
-    /// Get the name of a branch from its hash.
-    /// 
-    /// This is only found if the hash points to a branch tip.
-    /// Any other snapshot will result in `None`.
-    pub fn branch_from_hash(&self, commit_hash: ObjectHash) -> Option<&str> {
-        self.branches
-            .iter()
-            .filter_map(|(name, &hash)| {
-                if hash == commit_hash {
-                    Some(name.as_str())
-                }
-                else {
-                    None
-                }
-            })
-            .next()
+        self.branches.get_name_for(self.current_hash)
     }
 
     /// Find if the `current_hash` doesn't point to the tip of any branch.
@@ -209,10 +203,24 @@ impl Repository {
         let hash = snapshot.hash;
 
         if let Some(name) = branch_name {
-            self.branches.create(name, hash);
+            self.branches.create(name.clone(), hash);
+
+            self.action_history.push(
+                Action::CreateBranch {
+                    name,
+                    hash
+                }
+            );
         }
 
         self.save_snapshot(snapshot)?;
+
+        self.action_history.push(
+            Action::SwitchVersion {
+                before: self.current_hash,
+                after: hash
+            }
+        );
 
         self.current_hash = hash;
         
@@ -273,25 +281,16 @@ impl Repository {
             bail!("found multiple results when looking for {raw_hash:?} ({glob:?}) - {results:?}");
         }
 
-        let path = &results[0];
+        let path = results[0].relative_to(self.blobs_dir())?;
 
-        let mut iter = path.components()
-            .rev()
-            .take(2);
+        let second = path
+            .file_stem()
+            .unwrap();
 
-        let second = iter
-            .next()
-            .unwrap()
-            .as_os_str()
-            .to_str()
-            .expect("non-utf8 found in path");
-
-        let first = iter
-            .next()
-            .unwrap()
-            .as_os_str()
-            .to_str()
-            .expect("non-utf8 found in path");
+        let first = path
+            .parent()
+            .and_then(|p| p.file_stem())
+            .unwrap();
 
         let raw_hash = format!("{first}{second}");
 
@@ -359,16 +358,16 @@ impl Repository {
                 self.tags.rename(&old, new);
             },
 
-            CloseAccount { id, .. } => {
+            OpenAccount { id, .. } => {
                 let user = unwrap!(
                     self.users.get_user_mut(&id),
                     "no user account with public key {id}"
                 );
 
-                user.closed = true;
+                user.closed = false;
             },
 
-            OpenAccount { id, .. } => {
+            CloseAccount { id, .. } => {
                 let user = unwrap!(
                     self.users.get_user_mut(&id),
                     "no user account with public key {id}"
@@ -384,7 +383,7 @@ impl Repository {
                 );
 
                 user.name = new;
-            }
+            },
 
             TrashAdd { hash } => {
                 self.trash.add(hash);
@@ -505,16 +504,6 @@ impl ProjectInfo {
 
         Ok(info)
     }
-
-    pub fn to_file(&self, path: impl AsRef<Path>) -> eyre::Result<()> {
-        let bytes = rmp_serde::to_vec(self)?;
-        
-        let mut fp = create_file(path)?;
-
-        fp.write_all(&bytes)?;
-
-        Ok(())
-    }
 }
 
 impl Repository {
@@ -631,24 +620,19 @@ impl Repository {
 
         let content_dir = root_dir.join(".asc");
 
-        let info = ProjectInfo::from_file(content_dir.join("info"))?;
-        
-        let history = Graph::from_file(content_dir.join("tree"))?;
+        let info: ProjectInfo = load_as_msgpack(content_dir.join("info"))?;
 
-        let fp = open_file(content_dir.join("index"))?;
-        let staged_files: Vec<PathBuf> = rmp_serde::from_read(fp)?;
+        let history = load_as_msgpack(content_dir.join("tree"))?;
 
-        let fp = open_file(content_dir.join("history"))?;
-        let action_history = rmp_serde::from_read(fp)?;
+        let staged_files = load_as_msgpack(content_dir.join("index"))?;
 
-        let fp = open_file(content_dir.join("trash"))?;
-        let trash = rmp_serde::from_read(fp)?;
+        let action_history = load_as_msgpack(content_dir.join("history"))?;
 
-        let fp = open_file(content_dir.join("tags"))?;
-        let tags: NamedItems<ObjectHash> = rmp_serde::from_read(fp)?;
+        let trash = load_as_msgpack(content_dir.join("trash"))?;
 
-        let fp = open_file(content_dir.join("users"))?;
-        let users: Users = rmp_serde::from_read(fp)?;
+        let tags = load_as_msgpack(content_dir.join("tags"))?;
+
+        let users = load_as_msgpack(content_dir.join("users"))?;
 
         let repo = Repository {
             project_name: info.project_name,
@@ -672,10 +656,12 @@ impl Repository {
     }
 
     /// Save the current state of the repository to disk.
-    pub fn save(&self) -> Result<()> {
+    pub fn save(&mut self) -> Result<()> {
         self.validate_state()?;
         
         let current_user = *self.current_user.read().unwrap();
+
+        let content_dir = self.main_dir();
 
         let info = ProjectInfo {
             project_name: self.project_name.clone(),
@@ -687,29 +673,18 @@ impl Repository {
             remotes: self.remotes.clone()
         };
 
-        let content_dir = self.root_dir.join(".asc");
+        save_as_msgpack(&info, content_dir.join("info"))?;
 
-        info.to_file(content_dir.join("info"))?;
+        save_as_msgpack(&self.history, content_dir.join("tree"))?;
 
-        self.history.to_file(content_dir.join("tree"))?;
+        let set: BTreeSet<RelativePathBuf> = self.staged_files
+            .iter()
+            .map(|path| path.normalize())
+            .collect();
 
-        let mut index: Vec<PathBuf> = vec![];
-        
-        for path in &self.staged_files {
-            let path = self.root_dir.join(path);
+        self.staged_files = set.into_iter().collect();
 
-            let full = unwrap!(
-                path.canonicalize(),
-                "failed to canonicalise path: {}",
-                path.display()
-            );
-
-            let relative = pathdiff::diff_paths(full, &self.root_dir).unwrap();
-
-            index.push(relative);
-        }
-
-        save_as_msgpack(&index, content_dir.join("index"))?;
+        save_as_msgpack(&self.staged_files, content_dir.join("index"))?;
 
         save_as_msgpack(&self.action_history, content_dir.join("history"))?;
         
@@ -898,9 +873,11 @@ impl Repository {
         let mut files = BTreeMap::new();
         
         for path in &self.staged_files {
+            let full_path = path.to_logical_path(&self.root_dir);
+
             let content = unwrap!(
-                fs::read_to_string(path),
-                "could not read from path: {}", path.display()
+                fs::read_to_string(full_path),
+                "could not read from path: {path}"
             );
 
             let hash = self.save_content(&content, base_files.get(path).cloned())?;
@@ -921,15 +898,21 @@ impl Repository {
 }
 
 impl Repository {
-    fn cwd_differs_from_snapshot(&self, files: &BTreeMap<PathBuf, ObjectHash>) -> Result<bool> {
+    fn cwd_differs_from_snapshot(&self, files: &BTreeMap<RelativePathBuf, ObjectHash>) -> Result<bool> {
+        let mut paths_remaining: HashSet<_> = files.keys().collect();
+
         for path in &self.staged_files {
-            if !path.exists() {
+            paths_remaining.remove(path);
+
+            let full_path = path.to_logical_path(&self.root_dir);
+
+            if !full_path.exists() {
                 return Ok(true);
             }
 
             let current_content = unwrap!(
-                fs::read_to_string(path),
-                "failed to read path: {}", path.display()
+                fs::read_to_string(full_path),
+                "failed to read path: {path}"
             );
 
             let current_content_hash = hash_raw_bytes(&current_content);
@@ -941,6 +924,10 @@ impl Repository {
             if previous_content_hash != current_content_hash {
                 return Ok(true);
             }
+        }
+
+        if !paths_remaining.is_empty() {
+            return Ok(true);
         }
         
         Ok(false)
@@ -988,27 +975,31 @@ impl Repository {
     /// unsaved changes.
     /// 
     /// For a safer alternative, use [`Repository::replace_cwd_with_snapshot`].
-    pub fn replace_cwd_with_files(&mut self, files: &BTreeMap<PathBuf, ObjectHash>) -> Result<()> {
+    pub fn replace_cwd_with_files(&mut self, files: &BTreeMap<RelativePathBuf, ObjectHash>) -> Result<()> {
         let current = self.fetch_current_snapshot()?;
 
         // Delete paths that are in this snapshot but not the destination snapshot.
         for path in current.files.keys() {
+            let full_path = path.to_logical_path(&self.root_dir);
+
             if !files.contains_key(path) {
-                remove_path(path, &self.root_dir)?;
+                remove_path(full_path, &self.root_dir)?;
             }
         }
 
         for (path, &new) in files {
-            // File exists in both - if the hashes are different, replace the content.
-            if let Some(&old) = current.files.get(path) && old == new {
-                continue;
-            }
-
             let content = self.fetch_string_content(new)?;
 
+            let full_path = path.to_logical_path(&self.root_dir);
+
             unwrap!(
-                fs::write(path, content),
-                "failed to write to path: {}", path.display()
+                fs::create_dir_all(full_path.parent().unwrap()),
+                "failed to create directory for: {path}"
+            );
+
+            unwrap!(
+                fs::write(&full_path, content),
+                "failed to write to path: {path}"
             );
         }
 
@@ -1025,14 +1016,12 @@ impl Repository {
     pub fn list_changes(&self) -> Result<Vec<FileChange>> {
         let old_files = self.fetch_current_snapshot()?.files;
 
-        let old_paths: HashSet<PathBuf> = old_files
+        let old_paths: HashSet<&RelativePathBuf> = old_files
             .keys()
-            .cloned()
             .collect();
 
-        let new_paths: HashSet<PathBuf> = self.staged_files
+        let new_paths: HashSet<&RelativePathBuf> = self.staged_files
             .iter()
-            .cloned()
             .collect();
 
         let mut file_changes: Vec<FileChange> = vec![];
@@ -1040,27 +1029,33 @@ impl Repository {
         file_changes.extend(
             new_paths
                 .difference(&old_paths)
-                .map(|p| FileChange::Added(p.clone()))
+                .map(|&p| FileChange::Added(p.clone()))
         );
 
         file_changes.extend(
             old_paths
                 .difference(&new_paths)
-                .map(|p| FileChange::Removed(p.clone()))
+                .map(|&p| FileChange::Removed(p.clone()))
         );
 
         file_changes.extend(
             new_paths
                 .iter()
-                .filter_map(|p| (!p.exists()).then_some(FileChange::Missing(p.clone())))
+                .filter_map(|&p| {
+                    let full_path = p.to_logical_path(&self.root_dir);
+
+                    (!full_path.exists()).then_some(FileChange::Missing(p.clone()))
+                })
         );
 
         for (path, hash) in old_files {
-            if !path.exists() {
+            let full_path = path.to_logical_path(&self.root_dir);
+
+            if !full_path.exists() {
                 continue;
             }
 
-            let content = fs::read_to_string(&path)?;
+            let content = fs::read_to_string(&full_path)?;
 
             let content_hash = hash_raw_bytes(&content);
             

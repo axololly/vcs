@@ -11,10 +11,21 @@ pub fn parse() -> Result<()> {
     
     let mut valid_commits: HashSet<ObjectHash> = HashSet::new();
 
+    for (hash, parents) in repo.history.iter() {
+        if parents.is_empty() {
+            valid_commits.insert(hash);
+        }
+    }
+
     let mut queue: VecDeque<ObjectHash> = repo.branches
         .values()
+        .chain(repo.tags.values())
         .cloned()
         .collect();
+
+    if !queue.contains(&repo.current_hash) {
+        queue.push_back(repo.current_hash);
+    }
 
     while let Some(current) = queue.pop_front() {
         if repo.trash_contains(current).is_some() {
@@ -34,39 +45,41 @@ pub fn parse() -> Result<()> {
         queue.extend(parents.iter());
     }
 
-    let all_commits: HashSet<ObjectHash> = repo.history.iter_hashes().collect();
-    let removed = all_commits.difference(&valid_commits).count();
-
-    for &to_remove in all_commits.difference(&valid_commits) {
-        repo.history.remove(to_remove);
-    }
-
-    println!("Removed {removed} snapshots from the repository history.");
-    
     for entry in repo.stash.iter_entries() {
         let snapshot = repo.fetch_snapshot(entry.basis)?;
+
+        valid_commits.insert(snapshot.hash);
 
         valid_blobs.insert(repo.hash_to_path(snapshot.hash));
 
         valid_blobs.extend(snapshot.files.values().map(|&hash| repo.hash_to_path(hash)));
     }
+
+    let all_commits: HashSet<ObjectHash> = repo.history.iter_hashes().collect();
+    let removed_commits = all_commits.difference(&valid_commits).count();
+
+    for &to_remove in all_commits.difference(&valid_commits) {
+        repo.history.remove(to_remove);
+    }
+
+    println!("Snapshots removed: {removed_commits}");
     
     let all_blobs: HashSet<PathBuf> = resolve_wildcard_path(repo.blobs_dir().join("**/*"))?
         .into_iter()
         .collect();
 
-    let mut removed: usize = 0;
+    let mut removed_files: usize = 0;
 
-    for path in all_blobs.symmetric_difference(&valid_blobs) {
+    for path in all_blobs.difference(&valid_blobs) {
         unwrap!(
             fs::remove_file(path),
             "failed to delete path {} when cleaning repository.", path.display()
         );
 
-        removed += 1;
+        removed_files += 1;
     }
 
-    println!("Removed {removed} blobs from disk.");
+    println!("Files from disk: {removed_files}");
 
     repo.action_history.clear();
 

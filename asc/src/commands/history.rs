@@ -1,11 +1,10 @@
-use std::path::PathBuf;
-
 use chrono::{DateTime, Utc};
 use clap::ValueEnum;
 use color_eyre::owo_colors::OwoColorize;
 use eyre::Result;
 
 use libasc::{hash::ObjectHash, repository::Repository, snapshot::Snapshot, unwrap};
+use relative_path::RelativePathBuf;
 
 #[derive(Clone, Copy, ValueEnum)]
 enum Format {
@@ -17,7 +16,7 @@ enum Format {
 #[derive(clap::Args)]
 pub struct Args {
     /// The path to filter commits based on.
-    path: Option<PathBuf>,
+    path: Option<RelativePathBuf>,
 
     /// How many snapshots to display.
     #[arg(short = 'n', long)]
@@ -134,7 +133,7 @@ pub fn parse(args: Args) -> Result<()> {
                 let line = format!("{}", snapshot.hash);
 
                 if repo.current_hash == snapshot.hash {
-                    println!("{}", line.green());
+                    println!("{}", line.bright_green().bold());
                 }
                 else {
                     println!("{line}");
@@ -147,14 +146,34 @@ pub fn parse(args: Args) -> Result<()> {
                     .map(|u| u.name.as_str())
                     .unwrap_or("<unknown user>");
 
+                let mut info = vec![
+                    format!("user: {author}")
+                ];
+
+                let branches = repo.branches.get_names_for(snapshot.hash);
+                
+                if branches.len() > 1 {
+                    info.push(format!("branches: {}", branches.join(", ")));
+                }
+                else if branches.len() == 1 {
+                    info.push(format!("branch: {}", branches[0]));
+                }
+
+                let tags = repo.tags.get_names_for(snapshot.hash);
+                
+                if !tags.is_empty() {
+                    info.push(format!("tags: {}", tags.join(", ")));
+                }
+
                 let line = format!(
-                    "[{}]  {} (user: {author})",
+                    "[{}]  {} ({})",
                     snapshot.hash,
-                    first_line_only(&snapshot.message)
+                    first_line_only(&snapshot.message),
+                    info.join(", ")
                 );
 
                 if repo.current_hash == snapshot.hash {
-                    println!("{}", line.green());
+                    println!("{}", line.bright_green().bold());
                 }
                 else {
                     println!("{line}");
@@ -165,7 +184,7 @@ pub fn parse(args: Args) -> Result<()> {
                 let line = format!("Hash: {:?}", snapshot.hash);
 
                 if repo.current_hash == snapshot.hash {
-                    println!("{}", line.green());
+                    println!("{}", line.bright_green().bold());
                 }
                 else {
                     println!("{line}");
@@ -173,12 +192,33 @@ pub fn parse(args: Args) -> Result<()> {
 
                 let author = repo.users
                     .get_user(&snapshot.author)
-                    .map(|u| u.name.as_str())
+                    .map(|user| user.name.as_str())
                     .unwrap_or("<unknown user>");
 
-                println!("Message: {}", first_line_only(&snapshot.message));
-                println!("Author: {}", author);
+                println!("Author: {author}");
                 println!("Timestamp: {}", snapshot.timestamp);
+
+                let branches = repo.branches.get_names_for(snapshot.hash);
+
+                if branches.len() > 1 {
+                    println!("Branches: {}", branches.join(", "));
+                }
+                else if branches.len() == 1 {
+                    println!("Branch: {}", branches[0]);
+                }
+
+                let tags = repo.tags.get_names_for(snapshot.hash);
+
+                if !tags.is_empty() {
+                    println!("Tags: {}", tags.join(", "));
+                }
+                
+                println!();
+
+                for line in snapshot.message.lines() {
+                    println!("    {line}");
+                }
+
                 println!();
             }
         }

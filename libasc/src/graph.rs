@@ -1,9 +1,9 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, io::Write, path::Path};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use eyre::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{create_file, hash::ObjectHash, open_file, unwrap};
+use crate::{hash::ObjectHash, unwrap};
 
 type Parents = HashSet<ObjectHash>;
 
@@ -116,16 +116,18 @@ impl Graph {
     /// Return a [`HashMap`] inverting all the links in this [`Graph`].
     /// 
     /// This clones the entire graph for convenience.
-    pub fn invert(&self) -> HashMap<ObjectHash, HashSet<ObjectHash>> {
-        let mut map: HashMap<ObjectHash, HashSet<ObjectHash>> = HashMap::new();
+    pub fn invert(&self) -> Graph {
+        let mut graph = Graph::new();
 
         for (hash, parents) in self.iter() {
+            graph.insert_orphan(hash);
+
             for &parent in parents {
-                map.entry(parent).or_default().insert(hash);
+                graph.insert(parent, hash);
             }
         }
 
-        map
+        graph
     }
 
     pub fn extend(&mut self, other: &Graph) {
@@ -134,22 +136,6 @@ impl Graph {
                 self.insert(hash, parent);
             }
         }
-    }
-
-    pub fn from_file(path: impl AsRef<Path>) -> Result<Graph> {
-        let fp = open_file(path)?;
-
-        Ok(rmp_serde::from_read(fp)?)
-    }
-
-    pub fn to_file(&self, path: impl AsRef<Path>) -> Result<()> {
-        let mut fp = create_file(path)?;
-
-        let data = rmp_serde::to_vec(self)?;
-
-        fp.write_all(&data)?;
-
-        Ok(())
     }
 }
 

@@ -45,7 +45,10 @@ pub fn parse(args: Args) -> Result<()> {
     }
     else {
         let editor = args.editor.unwrap_or(
-            unwrap!(std::env::var("EDITOR"), "environment variable 'EDITOR' is not set.")
+            unwrap!(
+                std::env::var("EDITOR"),
+                "environment variable 'EDITOR' is not set."
+            )
         );
 
         let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");

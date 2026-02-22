@@ -1,3 +1,5 @@
+// TODO: add progress reporting
+
 pub mod client;
 pub mod clone;
 pub mod server;

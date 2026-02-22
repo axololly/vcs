@@ -1,8 +1,9 @@
-use std::path::Path;
+use std::io::{stdout, Write};
 
 use eyre::Result;
 
 use libasc::{filter_with_glob, repository::Repository};
+use relative_path::RelativePathBuf;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -26,9 +27,8 @@ pub fn parse(args: Args) -> Result<()> {
 
     let snapshot = repo.fetch_snapshot(version)?;
 
-    let paths: Vec<String> = snapshot.files
+    let paths: Vec<&RelativePathBuf> = snapshot.files
         .keys()
-        .map(|p| p.display().to_string())
         .collect();
 
     let valid_paths = filter_with_glob(args.globs, &paths);
@@ -39,14 +39,16 @@ pub fn parse(args: Args) -> Result<()> {
         return Ok(());
     }
 
-    for path in valid_paths {
-        let path = Path::new(path);
+    let mut stdout = stdout();
 
+    for &path in valid_paths {
         let content_hash = snapshot.files[path];
 
         let content = repo.fetch_string_content(content_hash)?;
 
-        println!("{content}");
+        stdout.write_all(content.as_bytes())?;
+
+        stdout.flush()?;
     }
     
     Ok(())

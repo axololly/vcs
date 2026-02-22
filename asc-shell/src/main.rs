@@ -16,11 +16,7 @@ macro_rules! error {
 }
 
 fn save_error(error: &eyre::Report) {
-    let mut now = Utc::now().to_string();
-
-    if let Some(i) = now.find('.') {
-        let _ = now.split_off(i);
-    }
+    let mut now = Utc::now().format("%d/%m/%Y %H:%M:%S");
 
     let name = format!("asc-server-{}", now);
 

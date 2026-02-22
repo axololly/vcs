@@ -1,32 +1,34 @@
-use std::{collections::{BTreeMap, HashMap}, path::PathBuf};
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, Utc};
+use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::hash::ObjectHash;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct State {
     pub message: String,
-    pub files: BTreeMap<PathBuf, ObjectHash>
+    pub files: BTreeMap<RelativePathBuf, ObjectHash>
 }
 
 /// Represents a snapshot independent of the history.
 /// 
 /// This also stores the snapshot from which the stash was made from.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Entry {
     pub state: State,
     pub basis: ObjectHash,
     pub timestamp: DateTime<Utc>
 }
 
-#[derive(Clone, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Stash {
     entries: HashMap<usize, Entry>,
     count: usize
 }
 
+// TODO: this doesn't seem to save?
 impl Stash {
     pub fn new() -> Self {
         Self::default()

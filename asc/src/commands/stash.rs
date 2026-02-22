@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, io::Read};
 
-use libasc::{get_content_from_editor, open_file, repository::Repository, stash::State, unwrap};
+use eyre::Result;
+use libasc::{get_content_from_editor, hash_raw_bytes, open_file, repository::Repository, stash::State, unwrap};
 
 #[derive(clap::Subcommand)]
 pub enum Subcommands {
@@ -70,60 +71,87 @@ static TEMPLATE_MESSAGE: &str = "
 # Whitespace before and after the message is also ignored.
 ";
 
-pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
+fn save_new_stash(
+    message: Option<String>,
+    editor: Option<String>,
+    repo: &mut Repository
+) -> Result<usize>
+{
+    let message = message
+        .map(Ok)
+        .unwrap_or_else(|| {
+            let editor = editor.unwrap_or(
+                unwrap!(
+                    std::env::var("EDITOR"),
+                    "environment variable 'EDITOR' is not set."
+                )
+            );
+
+            let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
+
+            get_content_from_editor(&editor, snapshot_message_path, TEMPLATE_MESSAGE)
+        }
+    )?;
+
+    let current_snapshot = repo.fetch_current_snapshot()?;
+
+    let mut files = BTreeMap::new();
+    
+    for path in &repo.staged_files {
+        let mut content = String::new();
+
+        let full_path = path.to_logical_path(&repo.root_dir);
+        
+        let mut fp = open_file(full_path)?;
+
+        fp.read_to_string(&mut content)?;
+
+        let basis = current_snapshot.files
+            .get(path)
+            .cloned();
+
+        repo.save_content(&content, basis)?;
+
+        files.insert(path.clone(), hash_raw_bytes(&content));
+    }
+
+    let state = State {
+        files,
+        message
+    };
+
+    let stash_id = repo.stash.add_state(state, repo.current_hash);
+
+    Ok(stash_id)
+}
+
+pub fn parse(subcommand: Subcommands) -> Result<()> {
     let mut repo = Repository::load()?;
     
     use Subcommands::*;
 
     match subcommand {
         New { message, editor } => {
-            parse(Subcommands::Save { message, editor })?;
+            let stash_id = save_new_stash(message, editor, &mut repo)?;
+
+            println!("Created new stash with ID {stash_id}");
 
             let current = repo.fetch_current_snapshot()?;
 
             repo.replace_cwd_with_files(&current.files)?;
 
-            println!("Reverted back to: {:?}", current.hash);
+            let version = if let Some(name) = repo.branches.get_name_for(current.hash) {
+                format!("{name:?} ({})", current.hash)
+            }
+            else {
+                current.hash.to_string()
+            };
+
+            println!("Reverted back to: {version}");
         }
 
         Save { message, editor } => {
-            let message = message
-                .map(Ok)
-                .unwrap_or_else(|| {
-                    let editor = editor.unwrap_or(
-                        unwrap!(std::env::var("EDITOR"), "environment variable 'EDITOR' is not set.")
-                    );
-
-                    let snapshot_message_path = &repo.root_dir.join("SNAPSHOT_MESSAGE");
-
-                    get_content_from_editor(&editor, snapshot_message_path, TEMPLATE_MESSAGE)
-                }
-            )?;
-
-            let mut files = BTreeMap::new();
-            
-            for path in &repo.staged_files {
-                let content = {
-                    let mut buf = String::new();
-                    
-                    let mut fp = open_file(path)?;
-
-                    fp.read_to_string(&mut buf)?;
-
-                    buf
-                };
-
-                repo.save_content(&content, Some(repo.current_hash))?;
-
-                files.insert(path.to_path_buf(), repo.current_hash);
-            }
-
-            let state = State {
-                files,
-                message
-            };
-
-            let stash_id = repo.stash.add_state(state, repo.current_hash);
+            let stash_id = save_new_stash(message, editor, &mut repo)?;
 
             println!("Created new stash with ID {stash_id}");
         }

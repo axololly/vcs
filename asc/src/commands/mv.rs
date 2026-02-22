@@ -1,50 +1,50 @@
-use std::path::PathBuf;
-
 use eyre::Result;
 
-use libasc::repository::Repository;
+use libasc::{filter_with_glob_indexes, repository::Repository};
+use relative_path::{PathExt, RelativePathBuf};
 
 #[derive(clap::Args)]
 pub struct Args {
     /// The current location of a file.
     /// This path must be part of the repository.
-    old: PathBuf,
+    old: RelativePathBuf,
 
     /// The new location for the file, or
     /// the new directory to put it under.
-    new: PathBuf
+    new: RelativePathBuf
 }
 
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    let raw_index = repo.staged_files
-        .iter()
-        .position(|p| p == &args.old);
-    
-    let Some(index) = raw_index else {
-        eprintln!("Path {} is not currently being tracked in repository.", args.old.display());
+    let staged_files = repo.staged_files.clone();
+
+    let paths_to_move = filter_with_glob_indexes(
+        vec![&args.old],
+        &staged_files
+    );
+
+    if paths_to_move.is_empty() {
+        eprintln!("No files found to move from {:?}.", args.old);
 
         return Ok(());
-    };
-
-    let mut new_path = args.new;
+    }
+    
+    let new_path = args.new.to_logical_path(&repo.root_dir);
     
     if new_path.is_dir() {
-        let raw_file_name = args.old.file_name().unwrap().to_str();
+        for (index, path) in paths_to_move {
+            let relative = path.relative(&args.old);
+            
+            let resolved_path = relative.to_logical_path(&new_path);
 
-        let Some(file_name) = raw_file_name else {
-            eprintln!("File name of {} contains invalid UTF-8.", args.old.display());
+            let new_path = resolved_path.relative_to(&repo.root_dir)?;
 
-            return Ok(());
-        };
+            println!("Moved: {path} -> {new_path}");
 
-        new_path.push(file_name);
+            repo.staged_files[index] = new_path;
+        }
     }
-
-    println!("Moved: {} -> {}", args.old.display(), new_path.display());
-
-    repo.staged_files[index] = new_path;
 
     repo.save()?;
 

@@ -6,7 +6,7 @@ use eyre::{Context, Result, bail, eyre};
 use glob::glob;
 use glob_match::glob_match;
 use miniz_oxide::{deflate::compress_to_vec, inflate::decompress_to_vec};
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 use sha2::{Digest, Sha256};
 
 /// Expand a path with wildcards into all possible matches.
@@ -22,19 +22,63 @@ pub fn resolve_wildcard_path(root: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
     let mut result = Vec::new();
 
     for path in paths {
-        result.push(path?);
+        let path = path?;
+
+        if !path.is_dir() {
+            result.push(path);
+            
+            continue;
+        }
+
+        let pattern = path
+            .join("**/*")
+            .display()
+            .to_string();
+
+        let contents = glob(&pattern)?;
+
+        for path in contents {
+            result.push(path?);
+        }
     }
 
     Ok(result)
 }
 
 /// Filter a list of strings using a list of glob patterns.
-pub fn filter_with_glob<S: AsRef<str>, I: AsRef<str>>(globs: Vec<S>, input: &[I]) -> Vec<&I> {
+pub fn filter_with_glob<S, I>(
+    globs: Vec<S>,
+    input: &[I]
+) -> Vec<&I>
+    where S: AsRef<str>,
+          I: AsRef<str>
+{
     let mut valid = vec![];
 
     for path in input {
         for pat in &globs {
             if glob_match(pat.as_ref(), path.as_ref()) {
+                valid.push(path);
+            }
+        }
+    }
+
+    valid
+}
+
+/// Filter a list of strings using a list of glob patterns.
+pub fn filter_with_glob_indexes<S, I>(
+    globs: Vec<S>,
+    input: &[I]
+) -> Vec<(usize, &I)>
+    where S: AsRef<str>,
+          I: AsRef<str>
+{
+    let mut valid = vec![];
+
+    for path in input.iter().enumerate() {
+        for pat in &globs {
+            if glob_match(pat.as_ref(), path.1.as_ref()) {
                 valid.push(path);
             }
         }
@@ -76,12 +120,15 @@ pub fn hash_raw_bytes(input: impl AsRef<[u8]>) -> ObjectHash {
 /// which also gets removed. Once the root is reached (typically `.`), the
 /// process stops.
 pub fn remove_path(path: impl AsRef<Path>, root: impl AsRef<Path>) -> Result<()> {
-    fs::remove_file(&path)?;
+    let mut path = path.as_ref();
+    let root = root.as_ref();
+
+    fs::remove_file(path)?;
 
     loop {
-        let path = path.as_ref().parent().unwrap();
+        path = path.parent().unwrap();
 
-        if path == root.as_ref() || path == "" {
+        if path == root || path == "" {
             break Ok(());
         }
         
@@ -192,6 +239,7 @@ pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path, templ
     Ok(cleaned)
 }
 
+/// Write data to a file, compressing it with messagepack.
 pub fn save_as_msgpack<T: Serialize>(data: &T, path: impl AsRef<Path>) -> Result<()> {
     let mut fp = create_file(path)?;
 
@@ -202,22 +250,11 @@ pub fn save_as_msgpack<T: Serialize>(data: &T, path: impl AsRef<Path>) -> Result
     Ok(())
 }
 
-// struct _Display<T>(pub T)
-// where
-//     T: fmt::Display;
+/// Load data from a file that was compressed with messagepack.
+pub fn load_as_msgpack<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<T> {
+    let fp = open_file(path)?;
 
-// pub struct DisplaySeq<'a, T>(pub &'a [T])
-// where
-//     T: fmt::Display;
-
-// impl<T: fmt::Display> fmt::Debug for _Display<T> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         fmt::Display::fmt(&self.0, f)
-//     }
-// }
-
-// impl<T: fmt::Display> fmt::Debug for DisplaySeq<'_, T> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         f.debug_list().entries(self.0.iter().map(_Display)).finish()
-//     }
-// }
+    let data = rmp_serde::from_read(fp)?;
+    
+    Ok(data)
+}

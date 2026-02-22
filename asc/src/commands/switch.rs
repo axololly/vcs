@@ -22,11 +22,11 @@ pub fn parse(args: Args) -> Result<()> {
 
     let new_hash = repo.normalise_version(&args.version)?;
 
-    let before = repo.branch_from_hash(previous_hash)
+    let before = repo.branches.get_name_for(previous_hash)
         .map(String::from)
         .unwrap_or(format!("{}", previous_hash));
 
-    let after = repo.branch_from_hash(new_hash)
+    let after = repo.branches.get_name_for(new_hash)
         .map(String::from)
         .unwrap_or(format!("{}", new_hash));
 

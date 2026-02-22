@@ -1,5 +1,6 @@
+use color_eyre::owo_colors::OwoColorize;
 use eyre::Result;
-use libasc::{content::{Content, Delta}, repository::Repository, snapshot::Snapshot};
+use libasc::{content::{Content, Delta}, hash_raw_bytes, repository::Repository, snapshot::Snapshot};
 use similar::TextDiff;
 use size::{Base, Size};
 
@@ -10,25 +11,37 @@ pub struct Args {
 }
 
 fn display_snapshot(snapshot: Snapshot, repo: &Repository) {
+    let line = format!("Hash: {:?}", snapshot.hash);
+    
+    if snapshot.hash == repo.current_hash {
+        println!("{}", line.bright_green().bold());
+    }
+    else {
+        println!("{line}");
+    }
+
     let parents: Vec<_> = snapshot.parents
         .iter()
         .map(|hash| format!("{hash:?}"))
         .collect();
 
-    let author = repo.users
-        .get_user(&snapshot.author)
-        .map(|user| user.name.clone())
-        .unwrap_or(format!("unknown ({})", snapshot.author));
+    println!("Parents: {}", parents.join(", "));
 
-    if snapshot.hash == repo.current_hash {
-        println!("Hash: {:?} (current)", snapshot.hash);
+    // .format("%d/%m/%Y %H:%M:%S")
+
+    let branches_here = repo.branches.get_names_for(snapshot.hash);
+
+    if branches_here.len() == 1 {
+        println!("Branch: {}", branches_here[0]);
     }
-    else {
-        println!("Hash: {:?}", snapshot.hash);
+    else if branches_here.len() > 1 {
+        println!("Branches: {}", branches_here.join(", "));
     }
 
-    if let Some(name) = repo.current_branch() {
-        println!("Branch: {name}");
+    let tags_here = repo.tags.get_names_for(snapshot.hash);
+
+    if !tags_here.is_empty() {
+        println!("Tags: {}", tags_here.join(", "));
     }
 
     let mut tags_on_snapshot: Vec<&str> = repo.tags
@@ -42,15 +55,20 @@ fn display_snapshot(snapshot: Snapshot, repo: &Repository) {
         println!("Tags: {}", tags_on_snapshot.join(", "));
     }
 
-    println!("Parents: {}", parents.join(", "));
+    let author = repo.users
+        .get_user(&snapshot.author)
+        .map(|user| user.name.clone())
+        .unwrap_or(format!("unknown ({})", snapshot.author));
+
     println!("Author: {author}");
     println!("Message: {}", snapshot.message);
+    println!("Timestamp: {}", snapshot.timestamp.format("%d/%m/%Y %H:%M:%S"));
 
     if !snapshot.files.is_empty() {
         println!("Files:");
 
         for (path, hash) in snapshot.files {
-            println!(" * {} ({hash})", path.display());
+            println!(" * {path} ({hash})");
         }
     }
     else {
@@ -89,6 +107,7 @@ fn display_content(content: Content, repo: &Repository) -> Result<()> {
     };
 
     println!("---");
+    println!("Hash: {:?}", hash_raw_bytes(&text));
     println!("{kind}");
     println!("Size: {}", format_size(text.len()));
     println!("---");

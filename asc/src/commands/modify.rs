@@ -1,9 +1,7 @@
-use std::collections::{HashMap, HashSet};
-
 use chrono::{DateTime, Utc};
 use eyre::Result;
 
-use libasc::{hash::ObjectHash, repository::Repository, unwrap};
+use libasc::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository};
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -20,13 +18,13 @@ pub struct Args {
 
     /// The new datetime for the snapshot.
     #[arg(long)]
-    datetime: Option<String>
+    datetime: Option<DateTime<Utc>>
 }
 
 fn update_recursively(
     old: ObjectHash,
     new: ObjectHash,
-    inverted: &HashMap<ObjectHash, HashSet<ObjectHash>>,
+    inverted: &Graph,
     repo: &mut Repository,
     updated_branches: &mut Vec<(String, (ObjectHash, ObjectHash))>
 ) -> Result<usize>
@@ -39,7 +37,7 @@ fn update_recursively(
         }
     }
 
-    let children = &inverted[&old];
+    let children = inverted.get_parents(old).unwrap();
 
     for &child in children {
         let mut child_snapshot = repo.fetch_snapshot(child)?;
@@ -115,12 +113,7 @@ pub fn parse(args: Args) -> Result<()> {
     }
 
     if let Some(datetime) = args.datetime {
-        let timestamp: DateTime<Utc> = unwrap!(
-            datetime.parse(),
-            "failed to parse raw datetime {datetime:?}"
-        );
-        
-        snapshot.timestamp = timestamp;
+        snapshot.timestamp = datetime;
     }
 
     let old_hash = snapshot.hash;
@@ -156,6 +149,14 @@ pub fn parse(args: Args) -> Result<()> {
 
     for (name, (old, new)) in updated_branches {
         println!(" * {name} ({old} -> {new})");
+
+        repo.action_history.push(
+            Action::MoveBranch {
+                name,
+                old,
+                new
+            }
+        );
     }
 
     repo.save()?;

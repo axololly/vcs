@@ -50,7 +50,7 @@ pub fn parse(args: Args) -> Result<()> {
         let mut s = format!(" * {action}");
         
         if Some(action) == repo.action_history.current() {
-            s = format!("{} (you are here)", s.bright_green());
+            s = format!("{} (you are here)", s.bright_green().bold());
         }
 
         println!("{s}");

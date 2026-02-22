@@ -1,11 +1,12 @@
 use eyre::Result;
 
 use libasc::{filter_with_glob, repository::Repository};
+use relative_path::RelativePathBuf;
 
 #[derive(clap::Args)]
 pub struct Args {
     /// The pattern to glob against. Omitting this lists from the repository root.
-    patterns: Option<Vec<String>>,
+    patterns: Vec<String>,
 
     /// Include hidden files.
     #[arg(short = 'a', long = "all")]
@@ -19,26 +20,28 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
-    let paths: Vec<String> = if let Some(raw_version) = &args.version {
-        let version = repo.normalise_version(raw_version)?;
+    let snapshot = if let Some(raw_version) = args.version {
+        let version = repo.normalise_version(&raw_version)?;
 
-        let snapshot = repo.fetch_snapshot(version)?;
-
-        snapshot.files
-            .keys()
-            .map(|p| format!("{p:?}"))
-            .collect()
+        repo.fetch_snapshot(version)?
     }
     else {
-        repo.staged_files
-            .iter()
-            .map(|p| format!("{p:?}"))
-            .collect()
+        repo.fetch_current_snapshot()?
     };
 
-    let patterns = args.patterns.unwrap_or(vec!["**/*".to_string()]);
+    let paths: Vec<RelativePathBuf> = snapshot.files
+        .into_keys()
+        .collect();
 
-    let mut valid_paths: Vec<&String> = filter_with_glob(patterns, &paths);
+    if args.patterns.is_empty() {
+        for path in paths {
+            println!("{path}");
+        }
+
+        return Ok(());
+    }
+
+    let mut valid_paths = filter_with_glob(args.patterns, &paths);
 
     if valid_paths.is_empty() {
         eprintln!("No paths found.");

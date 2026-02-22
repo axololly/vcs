@@ -22,7 +22,14 @@ pub struct Args {
 }
 
 pub fn parse(args: Args) -> Result<()> {
-    let root_dir = args.directory.unwrap_or(current_dir()?);
+    let root_dir = match args.directory {
+        Some(path) => path.canonicalize()?,
+        None => current_dir()?
+    };
+
+    if !root_dir.is_dir() {
+        eprintln!("{} is not a directory.", root_dir.display());
+    }
 
     let raw_dir_name = root_dir
         .file_name()

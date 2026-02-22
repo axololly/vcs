@@ -1,7 +1,8 @@
-use std::{collections::{BTreeMap, HashSet}, path::PathBuf};
+use std::collections::{BTreeMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use eyre::Result;
+use relative_path::RelativePathBuf;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -26,7 +27,7 @@ pub struct Snapshot {
     
     // A BTreeMap is used to preserve order, so that
     // reconstructing and validating the hash is easier.
-    pub files: BTreeMap<PathBuf, ObjectHash>,
+    pub files: BTreeMap<RelativePathBuf, ObjectHash>,
 
     pub parents: HashSet<ObjectHash>,
     pub signature: Signature
@@ -36,7 +37,7 @@ fn hash_from_parts(
     author: PublicKey,
     message: &str,
     timestamp: &DateTime<Utc>,
-    files: &BTreeMap<PathBuf, ObjectHash>,
+    files: &BTreeMap<RelativePathBuf, ObjectHash>,
     parents: &HashSet<ObjectHash>
 ) -> ObjectHash
 {
@@ -49,7 +50,7 @@ fn hash_from_parts(
     hasher.update(timestamp.timestamp().to_be_bytes());
 
     for (path, hash) in files {
-        hasher.update(path.as_os_str().as_encoded_bytes());
+        hasher.update(path.as_str());
 
         hasher.update(hash.as_bytes());
     }
@@ -71,7 +72,7 @@ impl Snapshot {
         mut creator: PrivateKey,
         message: String,
         timestamp: DateTime<Utc>,
-        files: BTreeMap<PathBuf, ObjectHash>,
+        files: BTreeMap<RelativePathBuf, ObjectHash>,
         parents: HashSet<ObjectHash>
     ) -> Snapshot
     {

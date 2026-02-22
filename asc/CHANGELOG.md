@@ -27,10 +27,14 @@ Categories are as follows:
 - Added commands for cloning, pushing and pulling
     - These also list how many bytes were sent and received
 - Added viewing content blobs as well as snapshots with `asc show`
+- `asc history` lists potential branches and tags on commits
+- `asc show` now lists any tags or branches that the commit is on, and the hash of content blobs
 
 ### Changed
 
 - Changed all `bail!` calls and some `unwrap!` calls to use `eprintln!` instead
+- `asc branch delete` can now take multiple names and a `--keep-going` flag
+- Commands now use bold bright green text instead of basic green text
 
 ### Removed
 
@@ -45,3 +49,10 @@ Categories are as follows:
 - Previously used SHA1 while `libasc` used SHA2
 - `asc modify` rehashes its children like Git does
 - `asc pull` and `asc push` were repeating what `libasc` was doing (moving branches, logging actions, etc), causing the branch pointers to be updated incorrectly
+- `asc add`, `asc remove` and `asc update` were handling globs incorrectly
+- `asc stash new` was overwriting the stash due to recursion
+- `asc add` was interacting with the terminal incorrectly
+- `asc cat` was adding an extra newline due to using `println!`
+- `asc clean` no longer deletes root commits, tagged commits or the currently referenced commit
+- `asc diff` previously didn't have `from` and `to` as labelled arguments
+

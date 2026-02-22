@@ -8,3 +8,5 @@
 - Add repository-level config and user-level config, customising things like default branch name
 
 - Add bare repositories, probably by equating `main_dir` and `root_dir`
+
+- Update `repo.users` on pushes and pulls

@@ -33,7 +33,11 @@ pub enum Subcommands {
     #[command(visible_aliases = ["rm", "remove"])]
     Delete {
         /// The name of the branch.
-        name: String
+        names: Vec<String>,
+
+        /// Whether to continue if a name doesn't exist
+        #[arg(long)]
+        keep_going: bool
     },
 
     /// Rename a branch.
@@ -86,7 +90,7 @@ pub fn parse(command: Subcommands) -> Result<()> {
                 return Ok(());
             }
 
-            if let Some(branch_name) = repo.branch_from_hash(base_version) {
+            if let Some(branch_name) = repo.branches.get_name_for(base_version) {
                 println!("Created new branch: {name} -> {branch_name} ({base_version})");
             }
             else {
@@ -143,26 +147,34 @@ pub fn parse(command: Subcommands) -> Result<()> {
             );
         }
 
-        Delete { name } => {
-            let Some(was_pointing_to) = repo.branches.remove(&name) else {
-                eprintln!("Branch {name:?} does not exist.");
+        Delete { names, keep_going } => {
+            for name in names {
+                let Some(was_pointing_to) = repo.branches.remove(&name) else {
+                    eprintln!("Branch {name:?} does not exist.");
 
-                return Ok(());
-            };
+                    if keep_going {
+                        continue;
+                    }
+                    
+                    return Ok(());
+                };
 
-            println!("Branch {name:?} no longer points to {was_pointing_to}.");
+                println!("Branch {name:?} no longer points to {was_pointing_to}.");
 
-            repo.action_history.push(
-                Action::DeleteBranch {
-                    hash: was_pointing_to,
-                    name
-                }
-            );
+                repo.action_history.push(
+                    Action::DeleteBranch {
+                        hash: was_pointing_to,
+                        name
+                    }
+                );
+            }
         }
 
         List { globs, verbose } => {
             if repo.is_head_detached() {
-                println!("{}", format!(" * HEAD detached at {}", repo.current_hash).bright_green());
+                let line = format!(" * HEAD detached at {}", repo.current_hash);
+
+                println!("{}", line.bright_green().bold());
             }
 
             let globs = globs.unwrap_or(vec!["**/*".to_string()]);
@@ -181,7 +193,7 @@ pub fn parse(command: Subcommands) -> Result<()> {
                 }
                 
                 if repo.current_hash == commit_hash {
-                    s = format!("{}", s.bright_green());
+                    s = format!("{}", s.bright_green().bold());
                 }
                 
                 println!("{s}")

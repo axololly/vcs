@@ -17,6 +17,7 @@ pub enum Subcommands {
     },
 
     /// List all the tags in the repository.
+    #[command(visible_alias = "ls")]
     List {
         globs: Option<Vec<String>>,
 
@@ -84,9 +85,14 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             }
             else {
                 repo.action_history.push(
-                    Action::CreateTag { name, hash }
+                    Action::CreateTag {
+                        name: name.clone(),
+                        hash
+                    }
                 );
             }
+
+            println!("Created tag: {name:?} -> {hash}");
         },
 
         List { globs, limit } => {

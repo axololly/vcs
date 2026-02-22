@@ -1,38 +1,53 @@
-use std::{collections::HashSet, path::{Path, PathBuf}};
+use std::collections::HashSet;
 
 use libasc::{change::FileChange, repository::Repository, resolve_wildcard_path};
 
 use eyre::Result;
+use relative_path::{PathExt, RelativePathBuf};
 
 pub fn parse() -> Result<()> {
     let mut repo = Repository::load()?;
 
-    let old: HashSet<PathBuf> = HashSet::from_iter(std::mem::take(&mut repo.staged_files));
+    let mut staged_files: HashSet<RelativePathBuf> = repo.staged_files
+        .drain(..)
+        .collect();
 
-    let new: HashSet<PathBuf> = HashSet::from_iter(
-        resolve_wildcard_path(Path::new("."))
-            .into_iter()
-            .flatten()
-    );
+    let mut added = vec![];
+    let mut removed = vec![];
+        
+    for path in resolve_wildcard_path(&repo.root_dir)? {
+        let relative = path.relative_to(&repo.root_dir)?;
 
-    let mut added = 0;
-    let mut removed = 0;
+        if repo.is_ignored_path(&path) {
+            if staged_files.contains(&relative) {
+                removed.push(relative);
+            }
+            
+            continue;
+        }
 
-    for path in new.difference(&old).cloned() {
+        if !staged_files.contains(&relative) {
+            added.push(relative);
+        }
+    }
+
+    let added_files = added.len();
+
+    for path in added {
+        staged_files.insert(path.clone());
+
         println!("{}", FileChange::Added(path));
-
-        added += 1;
     }
+
+    let removed_files = removed.len();
     
-    for path in old.difference(&new).cloned() {
-        println!("{}", FileChange::Removed(path));
+    for path in removed {
+        staged_files.remove(&path);
 
-        removed += 1;
+        println!("{}", FileChange::Removed(path));
     }
 
-    println!("Added {} files, removed {} files", added, removed);
-
-    repo.staged_files = new.into_iter().collect();
+    println!("Added {added_files} files, removed {removed_files} files");
 
     repo.save()?;
 

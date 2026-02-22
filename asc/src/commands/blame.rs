@@ -1,7 +1,8 @@
-use std::{collections::VecDeque, path::PathBuf, rc::Rc};
+use std::{collections::VecDeque, rc::Rc};
 
 use chrono::{DateTime, Utc};
 use eyre::Result;
+use relative_path::RelativePathBuf;
 use unicode_width::UnicodeWidthStr;
 
 use libasc::{hash::ObjectHash, repository::Repository, unwrap};
@@ -12,7 +13,7 @@ use blame_rs::{BlameRevision, blame};
 #[derive(clap::Args)]
 pub struct Args {
     /// The path to perform the blame on.
-    path: PathBuf
+    path: RelativePathBuf
 }
 
 #[derive(Debug)]
@@ -32,10 +33,8 @@ struct SnapshotData {
 pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
-    let path = &args.path;
-
-    if !repo.staged_files.contains(path) {
-        eprintln!("Path {} is not staged in the repository.", path.display());
+    if !repo.staged_files.contains(&args.path) {
+        eprintln!("Path {} is not staged in the repository.", &args.path);
     }
 
     let mut queue: VecDeque<ObjectHash> = VecDeque::new();
@@ -58,7 +57,7 @@ pub fn parse(args: Args) -> Result<()> {
 
         let snapshot = repo.fetch_snapshot(next)?;
 
-        let Some(&content_hash) = snapshot.files.get(path) else { continue };
+        let Some(&content_hash) = snapshot.files.get(&args.path) else { continue };
 
         snapshots.push(SnapshotData {
             hash: snapshot.hash,

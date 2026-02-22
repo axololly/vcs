@@ -1,6 +1,6 @@
 use eyre::{Result, eyre};
 
-use libasc::{graph::Graph, hash::ObjectHash, repository::Repository, trash::{Entry, TrashStatus}, unwrap};
+use libasc::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, trash::{Entry, TrashStatus}, unwrap};
 
 #[derive(clap::Subcommand)]
 pub enum Subcommands {
@@ -17,6 +17,7 @@ pub enum Subcommands {
     },
 
     /// List snapshots that were added in the trash.
+    #[command(visible_alias = "ls")]
     List {
         /// The specific version to list implicitly trashed snapshots of.
         version: Option<String>,
@@ -36,7 +37,7 @@ fn count_subnodes(graph: &Graph, node: ObjectHash) -> usize {
 }
 
 fn list_all_subnodes(graph: &Graph, hash: ObjectHash) -> Vec<ObjectHash> {
-    let mut v = vec![hash];
+    let mut v = vec![];
     
     for &child in graph.get_parents(hash).unwrap() {
         v.extend(&list_all_subnodes(graph, child));
@@ -48,17 +49,7 @@ fn list_all_subnodes(graph: &Graph, hash: ObjectHash) -> Vec<ObjectHash> {
 pub fn parse(subcommand: Subcommands) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    let inverse_links = {
-        let mut graph = Graph::new();
-
-        for (hash, parents) in repo.history.iter() {
-            for &parent in parents {
-                graph.insert(hash, parent);
-            }
-        }
-
-        graph
-    };
+    let inverse_links = repo.history.invert();
 
     use Subcommands::*;
 
@@ -91,39 +82,52 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 return Ok(());
             }
 
-            let tags_to_remove: Vec<(&str, ObjectHash)> = repo.tags
+            let branches_to_remove: Vec<&str> = repo.branches
+                .iter()
+                .filter_map(|(name, &branch_hash)| {
+                    repo.history
+                        .is_descendant(branch_hash, hash)
+                        .unwrap()
+                        .then_some(name.as_str())
+                })
+                .collect();
+
+            if !branches_to_remove.is_empty() {
+                eprintln!("Trashing this snapshot and its children involves trashing snapshots that are branch tips. To resolve this, run `asc tag delete {}` to delete the offending branches.", branches_to_remove.join(" "));
+
+                return Ok(());
+            }
+
+            let tags_to_remove: Vec<&str> = repo.tags
                 .iter()
                 .filter_map(|(name, &tag_hash)| {
                     repo.history
                         .is_descendant(tag_hash, hash)
                         .unwrap()
-                        .then_some((name.as_str(), tag_hash))
+                        .then_some(name.as_str())
                 })
                 .collect();
 
             if !tags_to_remove.is_empty() {
-                let mut tag_list = format!("Tagged snapshots ({}):\n", tags_to_remove.len());
-
-                for (name, hash) in &tags_to_remove {
-                    tag_list += &format!(" * {name} -> {hash}\n");
-                }
-
-                let tag_names: Vec<_> = tags_to_remove
-                    .iter()
-                    .map(|(name, _)| *name)
-                    .collect();
-
-                eprintln!("Trashing this snapshot and its children involves trashing snapshots that have been tagged: {tag_list}\n\nTo resolve this, run `asc tag delete {}` to delete the offending tags.", tag_names.join(" "));
+                eprintln!("Trashing this snapshot and its children involves trashing snapshots that have been tagged. To resolve this, run `asc tag delete {}` to delete the offending tags.", tags_to_remove.join(" "));
 
                 return Ok(());
             }
 
             repo.trash.add(hash);
 
+            // TODO: make it so this makes new branches for all the parent hashes
+            let parents_of_hash: Vec<ObjectHash> = repo.history
+                .get_parents(hash)
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect();
+
             if repo.history.is_descendant(repo.current_hash, hash)? {
                 if repo.has_unsaved_changes()? {
-                    let pretty_offending = repo
-                        .branch_from_hash(hash)
+                    let pretty_offending = repo.branches
+                        .get_name_for(hash)
                         .map(String::from)
                         .unwrap_or(hash.to_string());
 
@@ -137,19 +141,15 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                     return Ok(());
                 }
 
-                let parents = repo.history.get_parents(hash).unwrap();
-
-                let new_hash = parents
-                    .iter()
-                    .next()
-                    .cloned()
-                    .unwrap();
+                let new_hash = parents_of_hash[0];
 
                 let new_snapshot = repo.fetch_snapshot(new_hash)?;
 
+                println!("Changing snapshots: {} -> {new_hash}", repo.current_hash);
+
                 repo.replace_cwd_with_snapshot(&new_snapshot)?;
 
-                repo.current_hash = new_hash;
+                repo.current_hash = new_hash; // TODO: add this to log?
             }
 
             println!("Moved snapshot {hash} to the trash!");
@@ -159,6 +159,10 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             if others_removed > 0 {
                 println!("(Moved {others_removed} other snapshots to the trash too)");
             }
+
+            repo.action_history.push(
+                Action::TrashAdd { hash }
+            );
         }
 
         Recover { version } => {
@@ -189,6 +193,10 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             if others_recovered > 0 {
                 println!("(Recovered {others_recovered} other snapshots from the trash too)");
             }
+
+            repo.action_history.push(
+                Action::TrashRecover { hash }
+            );
         }
 
         List { version: None, limit } => {
@@ -210,12 +218,12 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 .unwrap();
 
             for Entry { hash, when } in capped_entries {
-                let mut s = format!(" * {hash}");
+                let mut s = format!(" * {hash} [{when}]");
                 
                 let count = count_subnodes(&repo.history, *hash);
 
                 if count > 0 {
-                    s = format!("{s} [{when}] (+ {count})");
+                    s = format!("{s} (+ {count})");
                 }
 
                 println!("{s}");
@@ -228,7 +236,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             }
         }
 
-        List { version: Some(raw_hash), limit } => {
+        List { version: Some(raw_version), limit } => {
             let limit = limit.unwrap_or(usize::MAX);
 
             if repo.trash.is_empty() {
@@ -237,7 +245,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 return Ok(());
             }
 
-            let hash = repo.normalise_hash(&raw_hash)?;
+            let hash = repo.normalise_hash(&raw_version)?;
 
             repo
                 .trash

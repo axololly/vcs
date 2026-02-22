@@ -1,7 +1,7 @@
 use color_eyre::owo_colors::OwoColorize;
-use eyre::{bail, Result};
+use eyre::Result;
 
-use libasc::{repository::Repository, unwrap};
+use libasc::{action::Action, repository::Repository};
 
 #[derive(clap::Subcommand)]
 pub enum Subcommands {
@@ -73,7 +73,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 let mut line = format!(" * {}", user.name);
 
                 if let Some(current_user) = repo.current_user() && current_user.name == user.name {
-                    line = format!("{}", line.green());
+                    line = format!("{}", line.bright_green().bold());
                 }
 
                 println!("{line}");
@@ -136,10 +136,11 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
         },
 
         Reopen { username } => {
-            let user = unwrap!(
-                repo.users.get_user_mut(&username),
-                "no user with name {username:?} in this repository."
-            );
+            let Some(user) = repo.users.get_user_mut(&username) else {
+                eprintln!("No user with name {username:?} in this repository.");
+
+                return Ok(());
+            };
 
             if user.closed {
                 user.closed = false;
@@ -162,7 +163,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 println!("{}", user.name);
             }
             else {
-                bail!("no valid user is set in this repository.");
+                eprintln!("No valid user is set in this repository.");
             }
         },
 
@@ -173,7 +174,15 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 return Ok(());
             };
 
-            user.name = new;
+            user.name = new.clone();
+
+            repo.action_history.push(
+                Action::RenameAccount {
+                    old: old.clone(),
+                    new,
+                    id: user.public_key
+                }
+            );
 
             println!("Renamed user: {old:?} -> {:?}", user.name);
         }
