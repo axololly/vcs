@@ -1,6 +1,6 @@
 use std::{collections::{HashSet, VecDeque}, fs, path::PathBuf};
 
-use libasc::{hash::ObjectHash, repository::Repository, unwrap, resolve_wildcard_path};
+use libasc::{hash::ObjectHash, repository::Repository, unwrap, utils::resolve_wildcard_path};
 
 use eyre::Result;
 

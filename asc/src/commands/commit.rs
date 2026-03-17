@@ -1,6 +1,6 @@
 use eyre::Result;
 
-use libasc::{repository::Repository, unwrap, get_content_from_editor};
+use libasc::{repository::Repository, unwrap, utils::get_content_from_editor};
 
 #[derive(clap::Args)]
 pub struct Args {

@@ -1,7 +1,7 @@
 use std::io::{stdin, stdout, IsTerminal, Write};
 
 use eyre::{bail, Result};
-use libasc::{change::FileChange, repository::Repository, resolve_wildcard_path};
+use libasc::{change::FileChange, repository::Repository, utils::resolve_wildcard_path};
 use relative_path::{PathExt, RelativePath};
 
 #[derive(clap::Args)]

@@ -1,9 +1,5 @@
-use std::collections::HashSet;
-
 use eyre::Result;
-use glob_match::glob_match;
-use libasc::{change::FileChange, repository::Repository};
-use relative_path::RelativePath;
+use libasc::{change::FileChange, repository::Repository, utils::filter_paths_with_glob_strict};
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -14,68 +10,23 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    let mut dirs = HashSet::new();
-
-    let globs: HashSet<&str> = args.paths
-        .iter()
-        .map(|glob| glob.strip_suffix("/").unwrap_or(glob))
-        .collect();
-
-    let check = |data: &str| {
-        for glob in &globs {
-            if glob_match(glob, data) {
-                return true;
-            }
-        }
-
-        false
-    };
-
-    for path in &repo.staged_files {
-        let mut path = path.as_relative_path();
-
-        while let Some(parent) = path.parent() && parent != "" {
-            dirs.insert(parent.as_str());
-
-            path = parent;
-        }
-    }
-
-    dirs.retain(|&dir| check(dir));
-
-    let check_path = |mut path: &RelativePath| {
-        loop {
-            if check(path.as_str()) {
-                break true;
-            }
-
-            let Some(parent) = path.parent() else { 
-                break false;
-            };
-
-            if parent == "" {
-                break false;
-            }
-            
-            path = parent;
-        }
-    };
-
-    let mut to_keep = vec![];
-    let mut to_remove = vec![];
-
     let staged_files = std::mem::take(&mut repo.staged_files);
 
-    for path in staged_files {
-        if check_path(path.as_relative_path()) {
-            to_remove.push(path);
-        }
-        else {
-            to_keep.push(path);
-        }
-    }
+    let filter_result = filter_paths_with_glob_strict(
+        &args.paths,
+        &staged_files,
+        &repo.root_dir
+    );
 
-    repo.staged_files = to_keep;
+    let to_remove = match filter_result {
+        Ok(matches) => matches,
+        
+        Err(invalid_path) => {
+            eprintln!("Path outside of tree: {invalid_path}");
+
+            return Ok(());
+        }
+    };
 
     if to_remove.is_empty() {
         eprintln!("Nothing to remove.");
@@ -83,9 +34,15 @@ pub fn parse(args: Args) -> Result<()> {
         return Ok(());
     }
 
-    for path in to_remove {
+    for path in &to_remove {
         println!("{}", FileChange::Removed(path));
     }
+
+    repo.staged_files = staged_files
+        .iter()
+        .filter(|p| !to_remove.contains(p))
+        .cloned()
+        .collect();
 
     repo.save()?;
 

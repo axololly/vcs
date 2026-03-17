@@ -2,7 +2,7 @@ use std::io::{Read, stdin};
 
 use eyre::Result;
 
-use libasc::{action::Action, filter_with_glob, repository::Repository};
+use libasc::{action::Action, repository::Repository, utils::filter_with_glob};
 
 #[derive(clap::Subcommand)]
 pub enum Subcommands {

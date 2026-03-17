@@ -183,7 +183,12 @@ pub async fn handle_pull_as_client(
         "no valid user on this repository"
     );
     
-    login_as(user, stream, repo.project_code).await?;
+    login_as(
+        user.public_key,
+        stream,
+        repo.project_code,
+        &mut repo.users
+    ).await?;
 
     let branch_names: Vec<_> = repo.branches
         .iter()

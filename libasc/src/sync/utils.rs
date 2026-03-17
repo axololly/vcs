@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use eyre::{Result, bail, eyre};
+use eyre::{Result, bail};
 use rand::random;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-use crate::{content::Content, graph::Graph, hash::ObjectHash, key::Signature, repository::Repository, snapshot::Snapshot, sync::stream::Stream, user::User};
+use crate::{content::Content, graph::Graph, hash::ObjectHash, key::{PublicKey, Signature}, repository::Repository, snapshot::Snapshot, sync::stream::Stream, unwrap, user::{User, Users}};
 
 pub type Repo = Arc<Mutex<Repository>>;
 
@@ -24,16 +24,22 @@ pub fn get_server_secret() -> ServerSecret {
 }
 
 pub async fn login_as(
-    user: &User,
+    user_key: PublicKey,
     stream: &mut impl Stream,
-    project_code: ObjectHash
+    project_code: ObjectHash,
+    repo_users: &mut Users
 ) -> Result<()> {
+    let user = unwrap!(
+        repo_users.get_user(&user_key),
+        "user with public key {user_key:?} does not exist."
+    );
+
     stream.send(&project_code).await?;
 
     let get_secret: Option<ServerSecret> = stream.receive().await?;
 
     let Some(secret) = get_secret else {
-        bail!("project codes do not match");
+        bail!("project codes do not match.");
     };
 
     let mut key = user.private_key.clone().unwrap();
@@ -44,7 +50,19 @@ pub async fn login_as(
 
     let result: Result<(), String> = stream.receive().await?;
 
-    result.map_err(|message| eyre!("server error: {message}"))
+    if let Err(message) = result {
+        bail!("server error: {message}");
+    }
+
+    let users: Users = stream.receive().await?;
+
+    for user in users.iter_owned() {
+        // An `Err` is returned if the user already exists,
+        // which we can just skip.
+        let _ = repo_users.add_user(user);
+    }
+
+    Ok(())
 }
 
 pub async fn handle_login(
@@ -76,6 +94,10 @@ pub async fn handle_login(
     };
 
     stream.send(&result).await?;
+
+    if result.is_ok() {
+        stream.send(&repo.users).await?;
+    }
 
     Ok(())
 }

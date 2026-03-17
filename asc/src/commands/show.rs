@@ -1,6 +1,6 @@
 use color_eyre::owo_colors::OwoColorize;
 use eyre::Result;
-use libasc::{content::{Content, Delta}, hash_raw_bytes, repository::Repository, snapshot::Snapshot};
+use libasc::{content::{Content, Delta}, repository::Repository, snapshot::Snapshot, utils::hash_raw_bytes};
 use similar::TextDiff;
 use size::{Base, Size};
 

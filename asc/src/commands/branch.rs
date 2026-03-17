@@ -1,7 +1,7 @@
 use color_eyre::owo_colors::OwoColorize;
 use eyre::Result;
 
-use libasc::{action::Action, filter_with_glob, repository::Repository};
+use libasc::{action::Action, repository::Repository, utils::filter_with_glob};
 
 #[derive(clap::Subcommand)]
 pub enum Subcommands {

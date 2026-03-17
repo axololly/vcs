@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use libasc::{change::FileChange, repository::Repository, resolve_wildcard_path};
+use libasc::{change::FileChange, repository::Repository, utils::resolve_wildcard_path};
 
 use eyre::Result;
 use relative_path::{PathExt, RelativePathBuf};

@@ -10,8 +10,6 @@ pub mod stash;
 pub mod sync;
 pub mod trash;
 pub mod user;
-
 pub mod utils;
-pub use utils::*;
 
 mod macros;

@@ -106,7 +106,8 @@ impl Users {
     /// like when the user account is received from a remote.
     pub fn add_user(&mut self, user: User) -> Result<&mut User> {
         let search = self.iter().find(|u| {
-            u.public_key == user.public_key || u.name == user.name
+            u.public_key == user.public_key ||
+            u.name == user.name
         });
         
         if search.is_some() {
@@ -132,9 +133,17 @@ impl Users {
         self.inner.iter_mut().find(|user| search.matches(user))
     }
 
+    pub fn has_user<'data>(&self, query: impl AsSearchType<'data>) -> bool {
+        self.get_user(query).is_some()
+    }
+
     /// Iterature through all [`User`]s in the repository.
     pub fn iter(&self) -> impl Iterator<Item = &User> {
         self.inner.iter()
+    }
+
+    pub fn iter_owned(self) -> impl Iterator<Item = User> {
+        self.inner.into_iter()
     }
 
     /// Check if no users are in the repository.

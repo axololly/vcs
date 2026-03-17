@@ -1,6 +1,6 @@
 use std::{collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque}, env::current_dir, fs, path::{Path, PathBuf}, str::FromStr, sync::{Arc, RwLock}};
 
-use crate::{action::{Action, ActionHistory}, change::FileChange, compress_data, content::{Content, Delta}, create_file, graph::Graph, hash::ObjectHash, hash_raw_bytes, key::PublicKey, load_as_msgpack, open_file, remove_path, resolve_wildcard_path, save_as_msgpack, set, snapshot::Snapshot, stash::Stash, sync::remote::Remote, trash::{Entry, Trash, TrashStatus}, unwrap, user::{User, Users}};
+use crate::{action::{Action, ActionHistory}, change::FileChange, content::{Content, Delta}, graph::Graph, hash::ObjectHash, key::PublicKey, set, snapshot::Snapshot, stash::Stash, sync::remote::Remote, trash::{Entry, Trash, TrashStatus}, unwrap, user::{User, Users}, utils::{compress_data, create_file, hash_raw_bytes, load_as_msgpack, open_file, remove_path, resolve_wildcard_path, save_as_msgpack}};
 
 use chrono::Utc;
 use expand_tilde::ExpandTilde;
@@ -1013,59 +1013,72 @@ impl Repository {
 
     /// List all the changes as [`FileChange`] objects between
     /// the current snapshot and the current working directory.
-    pub fn list_changes(&self) -> Result<Vec<FileChange>> {
-        let old_files = self.fetch_current_snapshot()?.files;
+    pub fn list_changes(&self) -> Result<Vec<FileChange<RelativePathBuf>>> {
+        let checkout_files = self.fetch_current_snapshot()?.files;
 
-        let old_paths: HashSet<&RelativePathBuf> = old_files
+        let checkout: HashSet<&RelativePathBuf> = checkout_files
             .keys()
             .collect();
 
-        let new_paths: HashSet<&RelativePathBuf> = self.staged_files
+        let staged: HashSet<&RelativePathBuf> = self.staged_files
             .iter()
             .collect();
 
-        let mut file_changes: Vec<FileChange> = vec![];
+        let all_paths: HashSet<&&RelativePathBuf> = checkout
+            .iter()
+            .chain(staged.iter())
+            .collect();
 
-        file_changes.extend(
-            new_paths
-                .difference(&old_paths)
-                .map(|&p| FileChange::Added(p.clone()))
-        );
+        let mut file_changes = vec![];
 
-        file_changes.extend(
-            old_paths
-                .difference(&new_paths)
-                .map(|&p| FileChange::Removed(p.clone()))
-        );
+        for path in all_paths {
+            let path_buf = (*path).clone();
 
-        file_changes.extend(
-            new_paths
-                .iter()
-                .filter_map(|&p| {
-                    let full_path = p.to_logical_path(&self.root_dir);
+            if !checkout.contains(path) && staged.contains(path) {
+                file_changes.push(FileChange::Added(path_buf));
 
-                    (!full_path.exists()).then_some(FileChange::Missing(p.clone()))
-                })
-        );
-
-        for (path, hash) in old_files {
-            let full_path = path.to_logical_path(&self.root_dir);
-
-            if !full_path.exists() {
                 continue;
             }
 
-            let content = fs::read_to_string(&full_path)?;
+            if checkout.contains(path) && !staged.contains(path) {
+                file_changes.push(FileChange::Removed(path_buf));
 
-            let content_hash = hash_raw_bytes(&content);
+                continue;
+            }
+
+            let full_path = path.to_logical_path(&self.root_dir);
+
+            if !full_path.exists() {
+                file_changes.push(FileChange::Missing(path_buf));
+
+                continue;
+            }
+
+            let disk_data = fs::read(full_path)?;
+
+            let disk_hash = hash_raw_bytes(disk_data);
             
-            if hash == content_hash {
-                file_changes.push(FileChange::Unchanged(path));
+            let content_hash = checkout_files[*path];
+
+            if content_hash == disk_hash {
+                file_changes.push(FileChange::Unchanged(path_buf));
             }
             else {
-                file_changes.push(FileChange::Edited(path));
+                file_changes.push(FileChange::Edited(path_buf));
             }
         }
+
+        /*
+        commit, index, disk
+
+        in commit, in index, no changes on disk = UNCHANGED
+        not in commit, in index, ... = ADDED
+        in commit, not in index, ... = REMOVED
+        in commit, in index, not on disk = MISSING
+        in commit, in index, changes on disk = EDITED
+        */
+
+        // TODO: check it works
 
         Ok(file_changes)
     }

@@ -6,10 +6,11 @@ use eyre::{Context, Result, bail, eyre};
 use glob::glob;
 use glob_match::glob_match;
 use miniz_oxide::{deflate::compress_to_vec, inflate::decompress_to_vec};
+use relative_path::{PathExt, RelativePath, RelativePathBuf};
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Expand a path with wildcards into all possible matches.
+/// Expand a path with wildcards into all possible matches by querying the filesystem.
 /// 
 /// This wraps the [`glob::glob`] function to make it more ergonomic.
 pub fn resolve_wildcard_path(root: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
@@ -46,11 +47,11 @@ pub fn resolve_wildcard_path(root: impl AsRef<Path>) -> Result<Vec<PathBuf>> {
 }
 
 /// Filter a list of strings using a list of glob patterns.
-pub fn filter_with_glob<S, I>(
-    globs: Vec<S>,
+pub fn filter_with_glob<G, I>(
+    globs: Vec<G>,
     input: &[I]
 ) -> Vec<&I>
-    where S: AsRef<str>,
+    where G: AsRef<str>,
           I: AsRef<str>
 {
     let mut valid = vec![];
@@ -67,11 +68,11 @@ pub fn filter_with_glob<S, I>(
 }
 
 /// Filter a list of strings using a list of glob patterns.
-pub fn filter_with_glob_indexes<S, I>(
-    globs: Vec<S>,
+pub fn filter_with_glob_indexes<G, I>(
+    globs: Vec<G>,
     input: &[I]
 ) -> Vec<(usize, &I)>
-    where S: AsRef<str>,
+    where G: AsRef<str>,
           I: AsRef<str>
 {
     let mut valid = vec![];
@@ -85,6 +86,153 @@ pub fn filter_with_glob_indexes<S, I>(
     }
 
     valid
+}
+
+/// Normalise a relative path contextually by appending it
+/// to some root directory and then building a relative path from it.
+/// 
+/// This is to support functionality like `ls ../testing` where
+/// `/tmp/testing/../testing` would be normalised to `/tmp/testing`,
+/// but because [`RelativePath::normalize`] works independently of any
+/// root path, `../testing` would become `""`
+pub fn normalise_with_root(
+    path: impl AsRef<RelativePath>,
+    root: impl AsRef<Path>
+) -> RelativePathBuf
+{
+    path
+        .as_ref()
+        .to_logical_path(&root)
+        .relative_to(&root)
+        .unwrap_or_else(|e| panic!(
+            "failed to normalise {:?} with reference to {:?} (error: {e})",
+            path.as_ref(),
+            root.as_ref()
+        ))
+}
+
+fn match_path_by_glob(
+    glob: impl AsRef<RelativePath>,
+    path: impl AsRef<RelativePath>,
+    root: impl AsRef<Path>
+) -> Option<bool>
+{
+    let mut current = path.as_ref();
+    
+    let glob = normalise_with_root(glob, root);
+
+    if glob.starts_with("..") {
+        return None;
+    }
+    
+    loop {
+        if glob == "" || glob_match(glob.as_str(), current.as_str()) {
+            return Some(true);
+        }
+
+        match current.parent() {
+            Some(next) => current = next,
+            None => break
+        }
+    }
+
+    Some(false)
+}
+
+/// Filter a list of paths with a glob pattern.
+/// 
+/// This will match globs starting with `..`. Use
+/// [`filter_paths_with_glob_strict`] to disallow this.
+pub fn filter_paths_with_glob<'a, P: AsRef<RelativePath>>(
+    globs: &[impl AsRef<RelativePath>],
+    paths: &'a [P],
+    root: impl AsRef<Path>
+) -> Vec<&'a P>
+{
+    paths
+        .iter()
+        .filter(|p| globs.iter().any(|glob| {
+            match_path_by_glob(glob, *p, &root) == Some(true)
+        }))
+        .collect()
+}
+
+/// Filter a list of paths with a glob pattern.
+/// 
+/// This will disallow any globs starting with `..` that would
+/// search outside of the tree.
+pub fn filter_paths_with_glob_strict<'glob, 'path, G, P>(
+    globs: &'glob [G],
+    paths: &'path [P],
+    root: impl AsRef<Path>
+) -> Result<Vec<&'path P>, &'glob G>
+    where G: AsRef<RelativePath>,
+          P: AsRef<RelativePath>
+{
+    let mut matches = vec![];
+
+    for path in paths {
+        for glob in globs {
+            match match_path_by_glob(glob, path, &root) {
+                Some(true) => matches.push(path),
+                Some(false) => {},
+                
+                None => return Err(glob)
+            }
+        }
+    }
+
+    Ok(matches)
+}
+
+/// Filter a list of paths with a glob pattern and include
+/// their indexes.
+/// 
+/// This will match globs starting with `..`. Use
+/// [`filter_paths_with_glob_strict`] to disallow this.
+pub fn filter_paths_with_glob_indexes<'a, P: AsRef<RelativePath>>(
+    globs: &[impl AsRef<RelativePath>],
+    paths: &'a [P],
+    root: impl AsRef<Path>
+) -> Vec<(usize, &'a P)>
+{
+    paths
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| globs.iter().any(|glob| {
+            match_path_by_glob(glob, *p, &root) == Some(true)
+        }))
+        .collect()
+}
+
+/// Filter a list of paths with a glob pattern.
+/// 
+/// This will disallow any globs starting with `..` that would
+/// search outside of the tree.
+pub fn filter_paths_with_glob_indexes_strict<'glob, 'path, G, P>(
+    globs: &'glob [G],
+    paths: &'path [P],
+    root: impl AsRef<Path>
+) -> Result<Vec<(usize, &'path P)>, &'glob G>
+    where G: AsRef<RelativePath>,
+          P: AsRef<RelativePath>
+{
+    let mut matches = vec![];
+
+    for (index, path) in paths.iter().enumerate() {
+        for glob in globs {
+            println!("{:?} -> {:?}", path.as_ref(), match_path_by_glob(glob, path, &root));
+
+            match match_path_by_glob(glob, path, &root) {
+                Some(true) => matches.push((index, path)),
+                Some(false) => {},
+                
+                None => return Err(glob)
+            }
+        }
+    }
+
+    Ok(matches)
 }
 
 /// Compress data using [`miniz_oxide::deflate::compress_to_vec`].
@@ -241,9 +389,16 @@ pub fn get_content_from_editor(editor: &str, snapshot_message_path: &Path, templ
 
 /// Write data to a file, compressing it with messagepack.
 pub fn save_as_msgpack<T: Serialize>(data: &T, path: impl AsRef<Path>) -> Result<()> {
+    let path = path.as_ref();
+
     let mut fp = create_file(path)?;
 
-    let bytes = rmp_serde::to_vec(data)?;
+    let bytes = unwrap!(
+        rmp_serde::to_vec(data),
+        "failed to build msgpack bytes from type {} (loaded from {})",
+        std::any::type_name::<T>(),
+        path.display()
+    );
 
     fp.write_all(&bytes)?;
     
@@ -252,9 +407,26 @@ pub fn save_as_msgpack<T: Serialize>(data: &T, path: impl AsRef<Path>) -> Result
 
 /// Load data from a file that was compressed with messagepack.
 pub fn load_as_msgpack<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<T> {
+    let path = path.as_ref();
+
     let fp = open_file(path)?;
 
-    let data = rmp_serde::from_read(fp)?;
+    let data = unwrap!(
+        rmp_serde::from_read(fp),
+        "failed to parse data from {} into {}",
+        path.display(),
+        std::any::type_name::<T>()
+    );
     
     Ok(data)
+}
+
+pub trait IsGlob {
+    fn is_glob(&self) -> bool;
+}
+
+impl<T: AsRef<RelativePath>> IsGlob for T {
+    fn is_glob(&self) -> bool {
+        self.as_ref().as_str().contains(['*', '?', '['])
+    }
 }

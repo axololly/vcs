@@ -2,7 +2,7 @@ use std::io::{stdout, Write};
 
 use eyre::Result;
 
-use libasc::{filter_with_glob, repository::Repository};
+use libasc::{repository::Repository, utils::filter_paths_with_glob};
 use relative_path::RelativePathBuf;
 
 #[derive(clap::Args)]
@@ -31,7 +31,7 @@ pub fn parse(args: Args) -> Result<()> {
         .keys()
         .collect();
 
-    let valid_paths = filter_with_glob(args.globs, &paths);
+    let valid_paths = filter_paths_with_glob(&args.globs, &paths, &repo.root_dir);
 
     if valid_paths.is_empty() {
         eprintln!("No files found.");

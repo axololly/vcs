@@ -29,6 +29,7 @@ Categories are as follows:
 - Added viewing content blobs as well as snapshots with `asc show`
 - `asc history` lists potential branches and tags on commits
 - `asc show` now lists any tags or branches that the commit is on, and the hash of content blobs
+- `asc ls` can now include changes on the files (`-v` is for version, `-c` is for changes)
 
 ### Changed
 
@@ -55,4 +56,4 @@ Categories are as follows:
 - `asc cat` was adding an extra newline due to using `println!`
 - `asc clean` no longer deletes root commits, tagged commits or the currently referenced commit
 - `asc diff` previously didn't have `from` and `to` as labelled arguments
-
+- `asc ls`, `asc mv` and `asc rm` now use `filter_paths_with_glob_strict` instead of `filter_with_glob` or alternate logic

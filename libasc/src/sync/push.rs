@@ -113,14 +113,19 @@ pub async fn handle_push_as_client(
     repo: Repo
 ) -> Result<Vec<PushResult>>
 {
-    let repo = repo.lock().await;
+    let mut repo = repo.lock().await;
 
     let user = unwrap!(
         repo.current_user(),
         "no valid user set for this repository."
     );
     
-    login_as(user, stream, repo.project_code).await?;
+    login_as(
+        user.public_key,
+        stream,
+        repo.project_code,
+        &mut repo.users
+    ).await?;
 
     let mut results: Vec<PushResult> = vec![];
 

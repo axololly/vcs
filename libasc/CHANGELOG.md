@@ -32,6 +32,7 @@ Categories are as follows:
 - Added pulling, pushing and cloning operations, as well as `handle_server` and a dedicated `Client` to connect over SSH
 - Added a dedicated `Remote` enum that supports both `file://` and `ssh://` URLs
 - Added a unifying type `Connection` over `ChildProcessStream` and `LocalStream` because `dyn` doesn't work with async traits
+- Added filter-with-glob functions for paths which work differently than the ones for strings 
 
 ### Changed
 
@@ -61,7 +62,9 @@ Categories are as follows:
 - Renamed `SshStream` to `ChildProcessStream` and removed the `async_ssh2_tokio` dependency
 - Restricted `Repository::fetch_content_object` to crate-only
 - Replaced `Repository::replace_cwd_with_snapshot` with `Repository::replace_cwd_with_files`, because only the `files` of the original `Snapshot` were used
-- Resolving hashes now queries the file system instead of the graph
+- Resolving hashes now queries the file system instead of the graph, allowing it to support looking for content hashes too
+- Allowed `FileChange` to work on both `&RelativePath` and `RelativePathBuf` types through generics
+- Updated `save_as_msgpack` and `load_as_msgpack` to include the path where data was loaded from, and what type was being requested, if an error occurred
 
 ### Fixed
 
@@ -70,6 +73,7 @@ Categories are as follows:
 - `Repository::replace_cwd_with_snapshot` did not update `Repository::staged_files`, causing errors when saving due to missing content
 - Fixed a really really unsound use of `transmute`
 - Fixed a bug where a delta could be stored that pointed to itself
+- `Repository::users` is updated on login whenever pushing and pulling
 
 ### Removed
 

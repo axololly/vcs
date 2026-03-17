@@ -1,7 +1,6 @@
 use eyre::Result;
-
-use libasc::{filter_with_glob_indexes, repository::Repository};
-use relative_path::{PathExt, RelativePathBuf};
+use libasc::{repository::Repository, utils::{IsGlob, filter_paths_with_glob_indexes_strict, normalise_with_root}};
+use relative_path::RelativePathBuf;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -17,32 +16,58 @@ pub struct Args {
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
-    let staged_files = repo.staged_files.clone();
+    let globs = [&args.old];
 
-    let paths_to_move = filter_with_glob_indexes(
-        vec![&args.old],
-        &staged_files
+    let filter_result = filter_paths_with_glob_indexes_strict(
+        &globs,
+        &repo.staged_files,
+        &repo.root_dir
     );
 
+    let paths_to_move = match filter_result {
+        Ok(matches) => matches,
+
+        Err(invalid_path) => {
+            eprintln!("Path outside of tree: {invalid_path}");
+
+            return Ok(());
+        }
+    };
+
     if paths_to_move.is_empty() {
-        eprintln!("No files found to move from {:?}.", args.old);
+        if args.old.is_glob() {
+            eprintln!("No files found to move from expanding glob {:?}.", args.old);
+        }
+        else { 
+            eprintln!("Path doesn't exist: {:?}", args.old);
+        }
 
         return Ok(());
     }
     
-    let new_path = args.new.to_logical_path(&repo.root_dir);
+    let mut new_path = normalise_with_root(args.new, &repo.root_dir);
     
-    if new_path.is_dir() {
-        for (index, path) in paths_to_move {
-            let relative = path.relative(&args.old);
-            
-            let resolved_path = relative.to_logical_path(&new_path);
+    if paths_to_move.len() == 1 {
+        let (index, path) = paths_to_move[0];
 
-            let new_path = resolved_path.relative_to(&repo.root_dir)?;
+        if new_path.to_logical_path(&repo.root_dir).is_dir() {
+            new_path = new_path.join(path.file_name().unwrap());
+        }
 
-            println!("Moved: {path} -> {new_path}");
+        println!("Moved: {path} -> {new_path}");
 
-            repo.staged_files[index] = new_path;
+        repo.staged_files[index] = new_path;
+    }
+    else {
+        let new_paths: Vec<(usize, RelativePathBuf)> = paths_to_move
+            .iter()
+            .map(|(index, path)| (*index, new_path.join(path.file_name().unwrap())))
+            .collect();
+
+        for (index, path) in new_paths {
+            println!("Moved: {} -> {path}", repo.staged_files[index]);
+
+            repo.staged_files[index] = path;
         }
     }
 

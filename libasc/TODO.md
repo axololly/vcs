@@ -9,4 +9,4 @@
 
 - Add bare repositories, probably by equating `main_dir` and `root_dir`
 
-- Update `repo.users` on pushes and pulls
+- Add support for deleting branches on remotes

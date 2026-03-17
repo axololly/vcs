@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, io::Read};
 
 use eyre::Result;
-use libasc::{get_content_from_editor, hash_raw_bytes, open_file, repository::Repository, stash::State, unwrap};
+use libasc::{repository::Repository, stash::State, unwrap, utils::{get_content_from_editor, hash_raw_bytes, open_file}};
 
 #[derive(clap::Subcommand)]
 pub enum Subcommands {

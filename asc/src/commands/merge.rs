@@ -226,24 +226,6 @@ pub fn parse(args: Args) -> Result<()> {
         return Ok(());
     };
 
-    let author_key = user.private_key.clone().unwrap();
-
-    let message = if let Some(msg) = args.message {
-        msg
-    }
-    else {
-        let editor = args.editor.unwrap_or(
-            unwrap!(
-                std::env::var("EDITOR"),
-                "environment variable 'EDITOR' is not set."
-            )
-        );
-
-        let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
-
-        get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
-    };
-
     let mut files = BTreeMap::new();
 
     let mut dirty_files: Vec<RelativePathBuf> = vec![];
@@ -271,16 +253,6 @@ pub fn parse(args: Args) -> Result<()> {
         files.insert(path, hash);
     }
 
-    let snapshot = Snapshot::new(
-        author_key,
-        message,
-        Utc::now(),
-        files,
-        set![repo.current_hash, target]
-    );
-
-    repo.replace_cwd_with_snapshot(&snapshot)?;
-
     if !is_clean_merge {
         let new_staged_files: Vec<RelativePathBuf> = repo.staged_files
             .iter()
@@ -292,16 +264,62 @@ pub fn parse(args: Args) -> Result<()> {
 
         repo.staged_files = new_staged_files;
 
-        eprintln!("Finished merge unsuccessfully: {conflicting_files} conflicting files");
+        eprintln!("Finished merge unsuccessfully because of {conflicting_files} conflicting files:");
+
+        for path in dirty_files {
+            eprintln!(" * {path}");
+        }
 
         return Ok(());
     }
 
+    let current_repr = match repo.current_branch() {
+        Some(name) => name.to_string(),
+        None => format!("{}", repo.current_hash)
+    };
+
+    let target_repr = match repo.branches.get_name_for(target) {
+        Some(name) => name.to_string(),
+        None => format!("{}", repo.current_hash)
+    };
+
+    println!("Merged {current_repr} and {target_repr}.");
+
     if args.no_commit {
+        repo.replace_cwd_with_files(&files)?;
+
         eprintln!("Finished merge but snapshot must be committed manually.");
+
+        repo.save()?;
         
         return Ok(());
     }
+
+    let author_key = user.private_key.clone().unwrap();
+
+    let message = if let Some(msg) = args.message {
+        msg
+    }
+    else {
+        let editor = args.editor.unwrap_or(
+            unwrap!(
+                std::env::var("EDITOR"),
+                "environment variable 'EDITOR' is not set."
+            )
+        );
+
+        let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
+
+        get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
+    };
+
+    let snapshot = Snapshot::new(
+        author_key,
+        message,
+        Utc::now(),
+        files,
+        set![repo.current_hash, target]
+    );
 
     repo.history.insert(snapshot.hash, repo.current_hash);
     repo.history.insert(snapshot.hash, target);
@@ -317,21 +335,9 @@ pub fn parse(args: Args) -> Result<()> {
         }
     );
 
-    let current = match repo.current_branch() {
-        Some(name) => name.to_string(),
-        None => format!("{}", repo.current_hash)
-    };
-
-    let target = match repo.branches.get_name_for(target) {
-        Some(name) => name.to_string(),
-        None => format!("{}", repo.current_hash)
-    };
-
     repo.current_hash = snapshot.hash;
 
     repo.save()?;
-
-    println!("Merged {current} and {target}.");
     
     println!("New commit: {:?}", snapshot.hash);
     
