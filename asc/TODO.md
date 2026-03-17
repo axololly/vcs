@@ -1,3 +1,5 @@
-- Add a way to view the edit history of a commit
+- Add octopus merges to `asc merge`
 
-- Add `asc show` to show details about a commit (original author, author, etc) and maybe `asc evolog` to show the edits the given commit has gone through
+- Handle criss-cross merges in `asc merge`
+
+- Add support for deleting branches on remotes

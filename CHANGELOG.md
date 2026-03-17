@@ -1,59 +1,9 @@
 # Changelog
 
-This is where all the changes to this project will be going.
+> [!WARNING]
+> This project was split into multiple crates with their own respective changelogs and their versions were reset. Below is the changelog from before this diversion took place.
 
-For my own personal reference:
-
-- **MAJOR** (1.0.0 → 2.0.0): Breaking changes
-- **MINOR** (1.0.0 → 1.1.0): New features (backwards compatible)
-- **PATCH** (1.0.0 → 1.0.1): Bug fixes (backwards compatible)
-
-Categories are as follows:
-
-- `Added` for new features
-- `Changed` for changes in existing functionality
-- `Deprecated` for soon-to-be-removed features
-- `Removed` for now removed features
-- `Fixed` for any bug fixes
-- `Security` in case of vulnerabilities
-
-## \[Unreleased\]
-
-### Added
-
-- Added user accounts to the repository
-- Added project codes to repositories so you can't sync to unrelated repositories
-- Added storing edits on snapshots separate to the original snapshot data
-- Added support for tilde paths when opening/loading a repository
-
-### Changed
-
-- `Repository::current_user` became `Repository::current_username` and was privatised
-- `Repository::current_user` is now a method that retrieves a `Option<&User>` for the current user
-    - If the set user is invalid for the operation, `current_username` is reset to `None` and the function returns `None`
-- Created three separate crates:
-    - `libasc` for the local implementation
-    - `libasc-remote` for the remote communication implementation (not currently included because it's unfinished)
-    - `asc` for the CLI
-- `manyterm` and `xdelta3-rs` are now included in the project as Git repositories instead of local folders
-- Timestamps on snapshots now use UTC instead of local time
-- `Snapshot::from_parts` is renamed to `Snapshot::new`
-- `RawContent` was removed and `Content` now directly holds the bytes (a `String` is obtained from `Content::resolve`)
-- User accounts now generate a public-private key pair instead of using a password
-- Merged IO bindings with the rest of the code in `libasc`
-- `asc rebase` now accepts multiple parents
-- User accounts are stored in a hashmap of public key to `User` object for faster lookups
-
-### Fixed
-
-- `asc update` didn't refill `Repository::staged_files`
-- Upgraded cryptographically insecure SHA1 to SHA256
-- `Repository::save_string_content` previously saved it as a `&str`, but `Repository::fetch_string_content` would have loaded it as a `Content`
-- `Repository::replace_cwd_with_snapshot` did not update `Repository::staged_files`, causing errors when saving due to missing content
-- `asc branch` didn't update `Repository::action_history`
-- Fixed a really really unsound use of `transmute`
-- Fixed display of `asc log`
-
+---
 
 ## v0.6.0
 

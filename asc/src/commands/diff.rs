@@ -1,35 +1,36 @@
-use std::{collections::BTreeSet, fs, path::{Path, PathBuf}};
+use std::{collections::BTreeSet, fs, path::PathBuf};
 
-use clap::Args as A;
-use eyre::{Result, bail};
+use eyre::Result;
+use relative_path::RelativePathBuf;
 use similar::{udiff::UnifiedDiff, TextDiff};
 
 use libasc::{change::FileChange, hash::ObjectHash, repository::Repository, unwrap};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     path: Option<PathBuf>,
 
+    #[arg(long)]
     from: Option<String>,
+
+    #[arg(long)]
     to: Option<String>
 }
 
-fn create_diff(path: &Path, old: &str, new: &str) -> String {
+fn create_diff(path: &RelativePathBuf, old: &str, new: &str) -> String {
     let diff = TextDiff::from_lines(old, new);
 
     let mut udiff = UnifiedDiff::from_text_diff(&diff);
 
-    let path_repr = path.display().to_string();
-
-    udiff.header(&path_repr, &path_repr);
+    udiff.header(path.as_str(), path.as_str());
 
     udiff.to_string()
 }
 
 #[derive(Debug, Eq)]
 pub enum Locator {
-    WithHash(PathBuf, ObjectHash),
-    FromCwd(PathBuf)
+    WithHash(RelativePathBuf, ObjectHash),
+    FromCwd(RelativePathBuf)
 }
 
 impl PartialEq for Locator {
@@ -53,16 +54,16 @@ impl Ord for Locator {
 impl Locator {
     pub fn get_content(&self, repo: &Repository) -> Result<String> {
         match self {
-            Locator::WithHash(_, hash) => repo.fetch_string_content(*hash)?.resolve(repo),
+            Locator::WithHash(_, hash) => repo.fetch_string_content(*hash),
 
             Locator::FromCwd(path) => Ok(unwrap!(
-                fs::read_to_string(path),
-                "cannot read from file: {}", path.display()
+                fs::read_to_string(path.to_logical_path(&repo.root_dir)),
+                "cannot read from file: {path}"
             ))
         }
     }
 
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &RelativePathBuf {
         match self {
             Locator::FromCwd(path) => path,
             Locator::WithHash(path, _) => path
@@ -91,7 +92,7 @@ fn get_before_and_after(
     repo: &Repository,
     old_files: &[Locator],
     new_files: &[Locator],
-    path: &Path
+    path: &RelativePathBuf
 ) -> Result<(Option<String>, Option<String>)>
 {
     let mut old_content = None;
@@ -135,7 +136,9 @@ pub fn parse(args: Args) -> Result<()> {
     };
 
     if from.is_none() && to.is_some() {
-        bail!("the option '--to' cannot be used without '--from'.");
+        eprintln!("the option '--to' cannot be used without '--from'.");
+
+        return Ok(());
     }
 
     let old_files = get_locators(&repo, from.or(Some(repo.current_hash)))?;
@@ -150,7 +153,7 @@ pub fn parse(args: Args) -> Result<()> {
     let mut diffs: Vec<String> = vec![];
 
     for locator in unique_locators {
-        let path = locator.path().to_path_buf();
+        let path = locator.path().clone();
 
         let diff = match get_before_and_after(&repo, &old_files, &new_files, &path)? {
             (None, None) => unreachable!(),

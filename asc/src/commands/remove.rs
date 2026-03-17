@@ -1,29 +1,48 @@
-use std::path::PathBuf;
-
-use clap::Args as A;
 use eyre::Result;
+use libasc::{change::FileChange, repository::Repository, utils::filter_paths_with_glob_strict};
 
-use libasc::{repository::Repository, utils::resolve_wildcard_path};
-
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The paths to remove from tracking. Wildcards will be expanded.
-    paths: Vec<PathBuf>
+    paths: Vec<String>
 }
 
 pub fn parse(args: Args) -> Result<()> {
-    let resolved_paths = args.paths
-        .iter()
-        .flat_map(resolve_wildcard_path)
-        .flatten();
-
     let mut repo = Repository::load()?;
 
-    for path in resolved_paths {
-        if let Some(index) = repo.staged_files.iter().position(|p| p == &path) {
-            repo.staged_files.remove(index);
+    let staged_files = std::mem::take(&mut repo.staged_files);
+
+    let filter_result = filter_paths_with_glob_strict(
+        &args.paths,
+        &staged_files,
+        &repo.root_dir
+    );
+
+    let to_remove = match filter_result {
+        Ok(matches) => matches,
+        
+        Err(invalid_path) => {
+            eprintln!("Path outside of tree: {invalid_path}");
+
+            return Ok(());
         }
+    };
+
+    if to_remove.is_empty() {
+        eprintln!("Nothing to remove.");
+
+        return Ok(());
     }
+
+    for path in &to_remove {
+        println!("{}", FileChange::Removed(path));
+    }
+
+    repo.staged_files = staged_files
+        .iter()
+        .filter(|p| !to_remove.contains(p))
+        .cloned()
+        .collect();
 
     repo.save()?;
 

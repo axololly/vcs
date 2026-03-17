@@ -1,9 +1,9 @@
-use clap::Subcommand;
-use eyre::{Result, bail};
+use std::{collections::BTreeMap, io::Read};
 
-use libasc::{repository::Repository, stash::Stash, unwrap, get_content_from_editor};
+use eyre::Result;
+use libasc::{repository::Repository, stash::State, unwrap, utils::{get_content_from_editor, hash_raw_bytes, open_file}};
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 pub enum Subcommands {
     /// Create a new stash in the repository,
     /// and then revert to the latest snapshot.
@@ -38,7 +38,7 @@ pub enum Subcommands {
     #[command(visible_alias = "rm")]
     Delete {
         /// The stash ID to remove.
-        id: Option<String>
+        id: Option<usize>
     },
 
     /// Replace the working directory with a snapshot
@@ -46,14 +46,14 @@ pub enum Subcommands {
     Pop {
         /// The stash ID of the snapshot to use.
         /// Defaults to the topmost stash ID.
-        id: Option<String>
+        id: Option<usize>
     },
 
     /// Functions like `pop` but does not delete the snapshot.
     Apply {
         /// The stash ID of the snapshot to use.
         /// Defaults to the topmost stash ID.
-        id: Option<String>
+        id: Option<usize>
     },
     
     /// Functions like `apply` but changes the HEAD to the basis of
@@ -61,7 +61,7 @@ pub enum Subcommands {
     Goto {
         /// The stash ID of the snapshot to use.
         /// Defaults to the topmost stash ID.
-        id: Option<String>
+        id: Option<usize>
     }
 }
 
@@ -71,122 +71,178 @@ static TEMPLATE_MESSAGE: &str = "
 # Whitespace before and after the message is also ignored.
 ";
 
-fn resolve_stash<'a>(repo: &'a Repository, id: Option<&str>) -> Result<(usize, &'a Stash)> {
-    if let Some(raw_hash) = id {
-        let full = repo.normalise_stash_hash(raw_hash)?;
+fn save_new_stash(
+    message: Option<String>,
+    editor: Option<String>,
+    repo: &mut Repository
+) -> Result<usize>
+{
+    let message = message
+        .map(Ok)
+        .unwrap_or_else(|| {
+            let editor = editor.unwrap_or(
+                unwrap!(
+                    std::env::var("EDITOR"),
+                    "environment variable 'EDITOR' is not set."
+                )
+            );
 
-        let index = repo.stashes
-            .iter()
-            .position(|s| s.snapshot == full)
-            .unwrap();
+            let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
 
-        Ok((index, &repo.stashes[index]))
+            get_content_from_editor(&editor, snapshot_message_path, TEMPLATE_MESSAGE)
+        }
+    )?;
+
+    let current_snapshot = repo.fetch_current_snapshot()?;
+
+    let mut files = BTreeMap::new();
+    
+    for path in &repo.staged_files {
+        let mut content = String::new();
+
+        let full_path = path.to_logical_path(&repo.root_dir);
+        
+        let mut fp = open_file(full_path)?;
+
+        fp.read_to_string(&mut content)?;
+
+        let basis = current_snapshot.files
+            .get(path)
+            .cloned();
+
+        repo.save_content(&content, basis)?;
+
+        files.insert(path.clone(), hash_raw_bytes(&content));
     }
-    else if let Some(topmost) = repo.stashes.last() {
-        Ok((repo.stashes.len() - 1, topmost))
-    }
-    else {
-        bail!("no stashes in the repository.")
-    }
+
+    let state = State {
+        files,
+        message
+    };
+
+    let stash_id = repo.stash.add_state(state, repo.current_hash);
+
+    Ok(stash_id)
 }
 
-pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
+pub fn parse(subcommand: Subcommands) -> Result<()> {
     let mut repo = Repository::load()?;
     
     use Subcommands::*;
 
     match subcommand {
         New { message, editor } => {
-            parse(Subcommands::Save { message, editor })?;
+            let stash_id = save_new_stash(message, editor, &mut repo)?;
+
+            println!("Created new stash with ID {stash_id}");
 
             let current = repo.fetch_current_snapshot()?;
 
-            repo.replace_cwd_with_snapshot_unchecked(&current)?;
+            repo.replace_cwd_with_files(&current.files)?;
 
-            println!("Reverted back to:   {:?}", current.hash);
+            let version = if let Some(name) = repo.branches.get_name_for(current.hash) {
+                format!("{name:?} ({})", current.hash)
+            }
+            else {
+                current.hash.to_string()
+            };
+
+            println!("Reverted back to: {version}");
         }
 
         Save { message, editor } => {
-            let message = message
-                .map(Ok)
-                .unwrap_or_else(|| {
-                    let editor = editor.unwrap_or(
-                        unwrap!(std::env::var("EDITOR"), "environment variable 'EDITOR' is not set.")
-                    );
+            let stash_id = save_new_stash(message, editor, &mut repo)?;
 
-                    let snapshot_message_path = &repo.root_dir.join("SNAPSHOT_MESSAGE");
-
-                    get_content_from_editor(&editor, snapshot_message_path, TEMPLATE_MESSAGE)
-                }
-            )?;
-
-            let user = unwrap!(
-                repo.current_user(),
-                "no valid user is set for this repository."
-            );
-
-            let author = user.name.clone();
-
-            let snapshot = repo.capture_current_state(author, message)?;
-
-            let stash = Stash {
-                snapshot: snapshot.hash,
-                basis: repo.current_hash,
-            };
-
-            repo.stashes.push(stash);
-
-            println!("Created new stash: {:?}", snapshot.hash);
+            println!("Created new stash with ID {stash_id}");
         }
 
-        Delete { id: Some(str_hash) } => {
-            let stash_id = repo.normalise_stash_hash(&str_hash)?;
-
-            let Some(index) = repo.stashes.iter().position(|s| s.snapshot == stash_id) else {
-                bail!("no hash found for {str_hash:?}.")
-            };
-
-            let removed_id = repo.stashes.remove(index).snapshot;
-
-            println!("Removed stash {removed_id}.");
+        Delete { id: Some(id) } => {
+            if repo.stash.remove_state(id).is_some() {
+                println!("Removed stash {id}.");
+            }
+            else {
+                eprintln!("No stash with ID {id}.");
+            }
         }
 
         Delete { id: None } => {
-            repo.stashes.clear();
+            repo.stash.clear();
 
             println!("Removed all stashes.");
         }
 
         Pop { id } => {
-            let (index, stash) = resolve_stash(&repo, id.as_deref())?;
+            let Some(topmost) = repo.stash.topmost_id() else {
+                eprintln!("The stash is empty.");
 
-            let snapshot = repo.fetch_snapshot(stash.snapshot)?;
+                return Ok(());
+            };
 
-            repo.replace_cwd_with_snapshot(&snapshot)?;
+            let id = id.unwrap_or(topmost);
+            
+            let Some(entry) = repo.stash.get_state(id) else {
+                eprintln!("No stash with ID {id}.");
 
-            println!("Restored working directory to stash {}", snapshot.hash);
+                return Ok(());
+            };
 
-            repo.stashes.remove(index);
+            if repo.has_unsaved_changes()? {
+                eprintln!("Cannot update working directory with unsaved changes.");
+
+                return Ok(());
+            }
+            
+            repo.replace_cwd_with_files(&entry.state.files.clone())?;
+
+            println!("Popped stash with ID {id}");
         }
 
         Apply { id } => {
-            let (_, stash) = resolve_stash(&repo, id.as_deref())?;
+            let Some(topmost) = repo.stash.topmost_id() else {
+                eprintln!("The stash is empty.");
 
-            let snapshot = repo.fetch_snapshot(stash.snapshot)?;
+                return Ok(());
+            };
 
-            repo.replace_cwd_with_snapshot(&snapshot)?;
+            let id = id.unwrap_or(topmost);
+            
+            let Some(entry) = repo.stash.get_state(id) else {
+                eprintln!("No stash with ID {id}.");
 
-            println!("Restored working directory to stash {}", snapshot.hash);
+                return Ok(());
+            };
+
+            if repo.has_unsaved_changes()? {
+                eprintln!("Cannot update working directory with unsaved changes.");
+
+                return Ok(());
+            }
+            
+            repo.replace_cwd_with_files(&entry.state.files.clone())?;
+
+            println!("Restored working directory to stash ID {id}");
         }
 
         Goto { id } => {
-            let (_, stash) = resolve_stash(&repo, id.as_deref())?;
+            let Some(topmost) = repo.stash.topmost_id() else {
+                eprintln!("The stash is empty.");
 
-            let snapshot = repo.fetch_snapshot(stash.snapshot)?;
+                return Ok(());
+            };
+
+            let id = id.unwrap_or(topmost);
+            
+            let Some(entry) = repo.stash.get_state(id) else {
+                eprintln!("No stash with ID {id}.");
+
+                return Ok(());
+            };
+
+            let snapshot = repo.fetch_snapshot(entry.basis)?;
 
             let before = repo.current_hash;
 
-            let after = stash.basis;
+            let after = entry.basis;
 
             repo.replace_cwd_with_snapshot(&snapshot)?;
 
@@ -196,16 +252,17 @@ pub fn parse(subcommand: Subcommands) -> eyre::Result<()> {
         },
 
         List => {
-            if repo.stashes.is_empty() {
-                println!("There are no stashes in this repository.");
+            if repo.stash.is_empty() {
+                eprintln!("The stash is empty.");
 
                 return Ok(());
             }
 
             println!("Stashes:");
 
-            for stash in &repo.stashes {
-                println!(" * {} (from {})", stash.snapshot, stash.basis);
+            for (id, entry) in repo.stash.iter() {
+                println!("    {}: [{}] on {}", id, entry.basis, entry.timestamp);
+                println!("        {}", entry.state.message);
             }
         }
     }

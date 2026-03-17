@@ -1,19 +1,19 @@
-use std::{collections::VecDeque, path::PathBuf, rc::Rc};
+use std::{collections::VecDeque, rc::Rc};
 
 use chrono::{DateTime, Utc};
-use clap::Args as A;
-use eyre::{Result, bail};
+use eyre::Result;
+use relative_path::RelativePathBuf;
 use unicode_width::UnicodeWidthStr;
 
 use libasc::{hash::ObjectHash, repository::Repository, unwrap};
 
-// TODO: maybe write your own version?
+// TODO: write your own
 use blame_rs::{BlameRevision, blame};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The path to perform the blame on.
-    path: PathBuf
+    path: RelativePathBuf
 }
 
 #[derive(Debug)]
@@ -33,10 +33,8 @@ struct SnapshotData {
 pub fn parse(args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
-    let path = &args.path;
-
-    if !repo.staged_files.contains(path) {
-        bail!("path {} is not staged in the repository", path.display());
+    if !repo.staged_files.contains(&args.path) {
+        eprintln!("Path {} is not staged in the repository.", &args.path);
     }
 
     let mut queue: VecDeque<ObjectHash> = VecDeque::new();
@@ -46,27 +44,27 @@ pub fn parse(args: Args) -> Result<()> {
     let mut snapshots: Vec<SnapshotData> = vec![];
 
     while let Some(next) = queue.pop_front() {
-        if next.is_root() {
-            break;
-        }
-
-        let snapshot = repo.fetch_snapshot(next)?;
-
-        let Some(&content_hash) = snapshot.files.get(path) else { continue };
-
-        snapshots.push(SnapshotData {
-            hash: snapshot.hash,
-            author: snapshot.author().to_string(),
-            timestamp: snapshot.timestamp(),
-            content: repo.fetch_string_content(content_hash)?.resolve(&repo)?
-        });
-
         let parents = unwrap!(
             repo.history.get_parents(next),
             "could not get hash of {next:?} in repository"
         );
         
+        if parents.is_empty() {
+            continue;
+        }
+
         queue.extend(parents);
+
+        let snapshot = repo.fetch_snapshot(next)?;
+
+        let Some(&content_hash) = snapshot.files.get(&args.path) else { continue };
+
+        snapshots.push(SnapshotData {
+            hash: snapshot.hash,
+            author: snapshot.author.to_string(),
+            timestamp: snapshot.timestamp,
+            content: repo.fetch_string_content(content_hash)?
+        });
     }
 
     let mut revisions: Vec<BlameRevision<CommitInfo>> = vec![];

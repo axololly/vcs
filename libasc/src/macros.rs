@@ -14,3 +14,19 @@ macro_rules! unwrap {
         $result.wrap_err_with(|| format!($message, $($arg)*))?
     }};
 }
+
+#[macro_export]
+macro_rules! set {
+    () => (
+        std::collections::HashSet::new()
+    );
+    ($($x:expr),+ $(,)?) => {{
+        let mut temp_set = std::collections::HashSet::new();
+
+        $(
+            temp_set.insert($x);
+        )*
+
+        temp_set
+    }};
+}

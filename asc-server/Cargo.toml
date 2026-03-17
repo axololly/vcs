@@ -1,0 +1,19 @@
+[package]
+name = "asc-server"
+description = "Remote agent to handle server-side connections"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.43"
+directories = "6.0.0"
+eyre = "0.6.12"
+libasc = { path = "../libasc" }
+stable-eyre = "0.2.2"
+
+[dependencies.tokio]
+version = "1.49.0"
+features = [
+    "macros",
+    "rt"
+]

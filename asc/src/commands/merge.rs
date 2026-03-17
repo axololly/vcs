@@ -1,13 +1,14 @@
-use std::{collections::{BTreeMap, HashMap, HashSet, VecDeque}, path::PathBuf};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use chrono::Utc;
-use clap::Args as A;
 
-use eyre::{Result, bail};
-use sha1::{Digest, Sha1};
+use eyre::Result;
+
+use relative_path::RelativePathBuf;
+// TODO: write your own
 use threeway_merge::{merge_strings, MergeOptions};
 
-use libasc::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, snapshot::Snapshot, unwrap, utils::get_content_from_editor};
+use libasc::{action::Action, graph::Graph, hash::ObjectHash, repository::Repository, set, snapshot::Snapshot, unwrap, utils::get_content_from_editor};
 
 use crate::commands::commit::COMMIT_TEMPLATE_MESSAGE;
 
@@ -38,7 +39,6 @@ fn nodes_to_root(graph: &Graph, node: ObjectHash) -> HashMap<ObjectHash, usize> 
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 enum Ancestry {
     Inclusive(ObjectHash),
     Exclusive(ObjectHash)
@@ -71,7 +71,7 @@ fn find_closest_common_ancestor(graph: &Graph, u: ObjectHash, v: ObjectHash) -> 
 }
 
 pub fn prettify_hash(repo: &Repository, hash: ObjectHash) -> String {
-    if let Some(branch_name) = repo.branch_from_hash(hash) {
+    if let Some(branch_name) = repo.branches.get_name_for(hash) {
         branch_name.to_string()
     }
     else {
@@ -89,7 +89,7 @@ enum MergeType {
     Dirty(String)
 }
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The version to merge onto the current snapshot.
     version: String,
@@ -113,11 +113,14 @@ pub struct Args {
     no_commit: bool
 }
 
+// TODO - review and ensure it works
 pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
     if repo.has_unsaved_changes()? {
-        bail!("cannot merge with unsaved changes");
+        eprintln!("Cannot merge with unsaved changes.");
+
+        return Ok(());
     }
 
     let target = repo.normalise_version(&args.version)?;
@@ -129,15 +132,16 @@ pub fn parse(args: Args) -> Result<()> {
         let u = repo.current_hash;
         let v = target;
 
-        let ancestry = unwrap!(
-            find_closest_common_ancestor(&repo.history, u, v),
-            "could not identify a common ancestor for snapshots {u} and {v}"
-        );
+        let Some(ancestry) = find_closest_common_ancestor(&repo.history, u, v) else {
+            eprintln!("could not identify a common ancestor for snapshots {u} and {v}");
+
+            return Ok(());
+        };
 
         match ancestry {
             // Fast-forward, but we're already at the child, so no changes made
             Ancestry::Inclusive(parent) if parent != repo.current_hash => {
-                println!("already on the child of the fast-forward, therefore no changes have been made.");
+                eprintln!("Already on the child of the fast-forward, therefore no changes have been made.");
                 
                 return Ok(());
             }
@@ -150,7 +154,12 @@ pub fn parse(args: Args) -> Result<()> {
 
                 repo.current_hash = target;
 
-                println!("Fast-forwaded to {target}");
+                if let Some(branch) = repo.branches.get_name_for(target) {
+                    println!("Fast-forwarded to {branch} ({target})");
+                }
+                else {
+                    println!("Fast-forwaded to {target}");
+                }
 
                 repo.save()?;
 
@@ -172,33 +181,32 @@ pub fn parse(args: Args) -> Result<()> {
     };
     
     let our_files = repo.fetch_current_snapshot()?.files;
-    let our_paths: HashSet<&PathBuf> = HashSet::from_iter(our_files.keys());
+    let our_paths: HashSet<&RelativePathBuf> = HashSet::from_iter(our_files.keys());
 
     let their_files = repo.fetch_snapshot(target)?.files;
     let their_paths = HashSet::from_iter(their_files.keys());
 
-    let mut merged_files: HashMap<PathBuf, MergeType> = HashMap::new();
+    let mut merged_files: HashMap<RelativePathBuf, MergeType> = HashMap::new();
 
     // Any files that are in either our version or their version but not in both
     // can go in the final version perfectly fine.
-    for path in our_paths.symmetric_difference(&their_paths) {
-        let &hash = our_files.get(path.as_path())
-            .or(their_files.get(path.as_path()))
+    for &path in our_paths.symmetric_difference(&their_paths) {
+        let &hash = our_files.get(path)
+            .or(their_files.get(path))
             .unwrap();
 
-        merged_files.insert(path.to_path_buf(), MergeType::Clean(ContentType::Fetch(hash)));
+        merged_files.insert(path.clone(), MergeType::Clean(ContentType::Fetch(hash)));
     }
 
     // Files that exist in both will have merge conflicts that need resolving.
-    for path in our_paths.intersection(&their_paths) {
-        let ours = repo.fetch_string_content(our_files[path.as_path()])?.resolve(&repo)?;
-        let theirs = repo.fetch_string_content(their_files[path.as_path()])?.resolve(&repo)?;
+    for &path in our_paths.intersection(&their_paths) {
+        let ours = repo.fetch_string_content(our_files[path])?;
+        let theirs = repo.fetch_string_content(their_files[path])?;
 
-        let base = base_files
-            .get(path.as_path())
-            .map(|&content_hash| repo.fetch_string_content(content_hash))
-            .map(|r| r.map(|c| c.resolve(&repo)))
-            .unwrap_or(Ok(Ok(String::new())))??;
+        let base = match base_files.get(path) {
+            Some(&content_hash) => repo.fetch_string_content(content_hash)?,
+            None => String::new()
+        };
 
         let merge_result = merge_strings(&base, &ours, &theirs, &options)?;
 
@@ -209,41 +217,18 @@ pub fn parse(args: Args) -> Result<()> {
             MergeType::Dirty(merge_result.content)
         };
 
-        merged_files.insert(path.to_path_buf(), merge_type);
+        merged_files.insert(path.clone(), merge_type);
     }
-
-    let mut hasher = Sha1::new();
     
-    let user = unwrap!(
-        repo.current_user(),
-        "no valid user is set for this repository."
-    );
+    let Some(user) = repo.current_user() else {
+        eprintln!("No valid user is set for this repository.");
 
-    let author = user.name.clone();
-
-    hasher.update(&author);
-
-    let message = if let Some(msg) = args.message {
-        msg
-    }
-    else {
-        let editor = args.editor.unwrap_or(
-            unwrap!(
-                std::env::var("EDITOR"),
-                "environment variable 'EDITOR' is not set."
-            )
-        );
-
-        let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
-
-        get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
+        return Ok(());
     };
-
-    hasher.update(&message);
 
     let mut files = BTreeMap::new();
 
-    let mut dirty_files: Vec<PathBuf> = vec![];
+    let mut dirty_files: Vec<RelativePathBuf> = vec![];
 
     let mut is_clean_merge = true;
 
@@ -261,52 +246,86 @@ pub fn parse(args: Args) -> Result<()> {
         };
 
         let hash = match content {
-            ContentType::Get(string) => {
-                hasher.update(&string);
-
-                repo.save_content_raw(&string)?
-            }
-
+            ContentType::Get(string) => repo.save_content_raw(&string)?,
             ContentType::Fetch(hash) => hash
         };
 
         files.insert(path, hash);
     }
 
-    let snapshot = Snapshot::new(
-        author,
-        message,
-        Utc::now(),
-        files
-    );
-
-    repo.replace_cwd_with_snapshot(&snapshot)?;
-
     if !is_clean_merge {
-        let new_staged_files: Vec<PathBuf> = repo.staged_files
+        let new_staged_files: Vec<RelativePathBuf> = repo.staged_files
             .iter()
             .filter(|p| dirty_files.contains(p))
             .cloned()
             .collect();
 
+        let conflicting_files = repo.staged_files.len() - new_staged_files.len();
+
         repo.staged_files = new_staged_files;
+
+        eprintln!("Finished merge unsuccessfully because of {conflicting_files} conflicting files:");
+
+        for path in dirty_files {
+            eprintln!(" * {path}");
+        }
+
+        return Ok(());
     }
 
+    let current_repr = match repo.current_branch() {
+        Some(name) => name.to_string(),
+        None => format!("{}", repo.current_hash)
+    };
+
+    let target_repr = match repo.branches.get_name_for(target) {
+        Some(name) => name.to_string(),
+        None => format!("{}", repo.current_hash)
+    };
+
+    println!("Merged {current_repr} and {target_repr}.");
+
     if args.no_commit {
-        println!("Finished merge but snapshot must be committed manually.");
+        repo.replace_cwd_with_files(&files)?;
+
+        eprintln!("Finished merge but snapshot must be committed manually.");
+
+        repo.save()?;
         
         return Ok(());
     }
 
-    repo.save_snapshot(snapshot.clone())?;
+    let author_key = user.private_key.clone().unwrap();
 
-    repo.history.remove(snapshot.hash);
+    let message = if let Some(msg) = args.message {
+        msg
+    }
+    else {
+        let editor = args.editor.unwrap_or(
+            unwrap!(
+                std::env::var("EDITOR"),
+                "environment variable 'EDITOR' is not set."
+            )
+        );
 
-    repo.history.insert(snapshot.hash, repo.current_hash)?;
-    repo.history.insert(snapshot.hash, target)?;
+        let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
+
+        get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
+    };
+
+    let snapshot = Snapshot::new(
+        author_key,
+        message,
+        Utc::now(),
+        files,
+        set![repo.current_hash, target]
+    );
+
+    repo.history.insert(snapshot.hash, repo.current_hash);
+    repo.history.insert(snapshot.hash, target);
 
     if let Some(name) = repo.current_branch() {
-        repo.branches.insert(name.to_string(), snapshot.hash);
+        repo.branches.create(name.to_string(), snapshot.hash);
     }
 
     repo.action_history.push(
@@ -316,15 +335,11 @@ pub fn parse(args: Args) -> Result<()> {
         }
     );
 
-    let previous = repo.current_hash;
-
     repo.current_hash = snapshot.hash;
 
     repo.save()?;
-
-    println!("Merged {previous} and {target}.");
     
-    println!("New commit: {}", snapshot.hash);
+    println!("New commit: {:?}", snapshot.hash);
     
     Ok(())
 }

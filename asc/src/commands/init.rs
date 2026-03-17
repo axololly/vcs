@@ -1,11 +1,10 @@
 use std::{env::current_dir, path::PathBuf};
 
-use clap::Args as A;
 use eyre::Result;
 
 use libasc::repository::Repository;
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The directory for the project.
     /// Defaults to where this command was invoked.
@@ -23,16 +22,25 @@ pub struct Args {
 }
 
 pub fn parse(args: Args) -> Result<()> {
-    let root_dir = args.directory.unwrap_or(current_dir()?);
+    let root_dir = match args.directory {
+        Some(path) => path.canonicalize()?,
+        None => current_dir()?
+    };
 
-    let dir_name = root_dir
+    if !root_dir.is_dir() {
+        eprintln!("{} is not a directory.", root_dir.display());
+    }
+
+    let raw_dir_name = root_dir
         .file_name()
         .unwrap()
-        .to_str()
-        .unwrap_or_else(|| {
-            panic!("Directory name contains invalid UTF-8, which is disallowed by this program.");
-        })
-        .to_string();
+        .to_str();
+
+    let Some(dir_name) = raw_dir_name.map(String::from) else {
+        eprintln!("Directory name contains invalid UTF-8, which is disallowed by this program.");
+
+        return Ok(());
+    };
 
     let project_name = args.project_name.unwrap_or(dir_name);
 

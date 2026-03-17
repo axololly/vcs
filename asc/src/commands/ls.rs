@@ -1,59 +1,13 @@
-use clap::Args as A;
+use std::{env::current_dir, fs};
+
 use eyre::Result;
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use libasc::{change::FileChange, repository::Repository, utils::{filter_paths_with_glob_strict, hash_raw_bytes}};
+use relative_path::{PathExt, RelativePathBuf};
 
-use libasc::{repository::Repository, unwrap};
-
-enum Entry<'name> {
-    File(&'name str),
-    Directory(&'name str, Vec<Entry<'name>>)
-}
-
-fn build_file_tree<'a>(paths: &'a [&str], patterns: Option<Vec<String>>) -> Result<Entry<'a>> {
-    let mut root = Entry::Directory("", vec![]);
-
-    let ignore = match patterns {
-        Some(paths) => {
-            let mut builder = GitignoreBuilder::new(".");
-
-            for path in paths {
-                builder.add(path);
-            }
-
-            builder.build()?
-        }
-    
-        None => Gitignore::empty()
-    };
-
-    for path in paths {
-        // Ignore any that don't match the glob.
-        if !ignore.matched(path, false).is_ignore() {
-            continue;
-        }
-
-        let node = &mut root;
-
-        for part in path.split('/') {
-            match node {
-                Entry::File(name) => {
-                    *node = Entry::Directory(name, vec![]);
-                }
-
-                Entry::Directory(_, children) => {
-                    children.push(Entry::File(part));
-                }
-            }
-        }
-    }
-
-    Ok(root)
-}
-
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The pattern to glob against. Omitting this lists from the repository root.
-    patterns: Option<Vec<String>>,
+    patterns: Vec<RelativePathBuf>,
 
     /// Include hidden files.
     #[arg(short = 'a', long = "all")]
@@ -61,87 +15,84 @@ pub struct Args {
 
     /// List contents from another version. Omitting this uses the current version.
     #[arg(short, long)]
-    version: Option<String>
+    version: Option<String>,
+
+    /// List file change information.
+    #[arg(short = 'c')]
+    include_changes: bool
 }
 
-fn print_tree(tree: Entry<'_>) -> eyre::Result<()> {
-    let files = match tree {
-        Entry::File(_) => vec![tree],
-        Entry::Directory(_, children) => children
-    };
-
-    for file in files {
-        match file {
-            Entry::File(name) => {
-                println!("{name}");
-            }
-
-            Entry::Directory(name, _) => {
-                println!("{name}/");
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn from_version(repo: &Repository, version: &str, patterns: Option<Vec<String>>, include_hidden: bool) -> eyre::Result<()> {
-    let snapshot_hash = repo.normalise_version(version)?;
-
-    let snapshot = repo.fetch_snapshot(snapshot_hash)?;
-
-    let mut files: Vec<&str> = vec![];
-    
-    for raw_path in snapshot.files.keys() {
-        let str_path = unwrap!(
-            raw_path.to_str(),
-            "invalid utf8 in path: {}", raw_path.display()
-        );
-
-        if !include_hidden && str_path.starts_with(".") {
-            continue;
-        }
-
-        files.push(str_path);
-    }
-
-    let tree = build_file_tree(&files, patterns)?;
-
-    print_tree(tree)?;
-
-    Ok(())
-}
-
-fn from_cwd(repo: &Repository, patterns: Option<Vec<String>>, include_hidden: bool) -> eyre::Result<()> {
-    let mut files: Vec<&str> = vec![];
-
-    for raw_path in &repo.staged_files {
-        let str_path = unwrap!(
-            raw_path.to_str(),
-            "invalid utf8 in path: {}", raw_path.display()
-        );
-
-        if !include_hidden && str_path.starts_with(".") {
-            continue;
-        }
-
-        files.push(str_path);
-    }
-
-    let tree = build_file_tree(&files, patterns)?;
-
-    print_tree(tree)?;
-    
-    Ok(())
-}
-
-pub fn parse(args: Args) -> eyre::Result<()> {
+pub fn parse(mut args: Args) -> Result<()> {
     let repo = Repository::load()?;
 
-    if let Some(ref version) = args.version {
-        from_version(&repo, version, args.patterns, args.include_hidden)
+    let current_dir = current_dir()
+        .unwrap_or(repo.root_dir.clone());
+
+    let snapshot = if let Some(raw_version) = args.version {
+        let version = repo.normalise_version(&raw_version)?;
+
+        repo.fetch_snapshot(version)?
     }
     else {
-        from_cwd(&repo, args.patterns, args.include_hidden)
+        repo.fetch_current_snapshot()?
+    };
+
+    if args.patterns.is_empty() {
+        args.patterns.push(RelativePathBuf::from("."));
     }
+
+    let filter_result = filter_paths_with_glob_strict(
+        &args.patterns,
+        &repo.staged_files,
+        &repo.root_dir
+    );
+
+    let mut valid_paths = match filter_result {
+        Ok(matches) => matches,
+        
+        Err(invalid_path) => {
+            eprintln!("Path outside of tree: {invalid_path}");
+
+            return Ok(());
+        }
+    };
+
+    if valid_paths.is_empty() {
+        eprintln!("No paths found.");
+
+        return Ok(());
+    }
+
+    valid_paths.sort();
+
+    for path in valid_paths {
+        let absolute = path.to_logical_path(&repo.root_dir);
+
+        let display_path = absolute.relative_to(&current_dir)?;
+
+        if !args.include_changes {
+            println!("{display_path}");
+
+            continue;
+        }
+        
+        if !absolute.exists() {
+            println!("{}", FileChange::Missing(display_path));
+
+            continue;
+        }
+
+        let data = fs::read(absolute)?;
+
+        let hash = hash_raw_bytes(data);
+
+        if hash == snapshot.files[path] {
+            println!("{}", FileChange::Unchanged(display_path));
+        }
+        else {
+            println!("{}", FileChange::Edited(display_path));
+        }
+    }
+
+    Ok(())
 }

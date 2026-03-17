@@ -1,11 +1,10 @@
 use std::io::{Read, stdin};
 
-use clap::Subcommand;
-use eyre::{Result, bail};
+use eyre::Result;
 
-use libasc::{action::Action, repository::Repository};
+use libasc::{action::Action, repository::Repository, utils::filter_with_glob};
 
-#[derive(Subcommand)]
+#[derive(clap::Subcommand)]
 pub enum Subcommands {
     /// Create a new tag in the repository.
     #[command(visible_aliases = ["new", "add"])]
@@ -18,7 +17,10 @@ pub enum Subcommands {
     },
 
     /// List all the tags in the repository.
+    #[command(visible_alias = "ls")]
     List {
+        globs: Option<Vec<String>>,
+
         #[arg(short = 'n', long)]
         limit: Option<usize>
     },
@@ -74,37 +76,43 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
         Create { name, version } => {
             let hash = repo.normalise_version(&version)?;
 
-            if let Some(previous) = repo.tags.insert(name.clone(), hash) {
+            if let Some(previous) = repo.tags.create(name.clone(), hash) {
                 let prompt = format!("You are going to override the tag {name:?} ({previous}) with {hash}. Are you sure you want to do this?");
 
                 if !prompt_user(prompt)? {
-                    repo.tags.insert(name.clone(), previous);
+                    repo.tags.create(name.clone(), previous);
                 }
             }
             else {
                 repo.action_history.push(
-                    Action::CreateTag { name, hash }
+                    Action::CreateTag {
+                        name: name.clone(),
+                        hash
+                    }
                 );
             }
+
+            println!("Created tag: {name:?} -> {hash}");
         },
 
-        List { limit } => {
-            let mut tags = repo.tags
-                .iter()
-                .take(limit.unwrap_or(usize::MAX));
+        List { globs, limit } => {
+            let globs = globs.unwrap_or(vec!["**/*".to_string()]);
 
-            if let Some((name, &hash)) = tags.next() {
-                println!("Tags:");
-                println!(" * {name} -> {hash}");
-            }
-            else {
-                println!("There are no tags in this repository.");
-                println!("Create a new one with `asc tag create`.");
+            let all_tags: Vec<&String> = repo.tags.names().collect();
+            
+            let tags: Vec<&&String> = filter_with_glob(globs, &all_tags);
+
+            if tags.is_empty() {
+                println!("No tags found.");
 
                 return Ok(());
             }
 
-            for (name, &hash) in tags {
+            println!("Tags:");
+
+            for name in tags.iter().take(limit.unwrap_or(usize::MAX)) {
+                let hash = repo.tags.get(name).unwrap();
+                
                 println!(" * {name} -> {hash}");
             }
         },
@@ -122,10 +130,12 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                     );
                 }
                 else if keep_going {
-                    println!("Warning: tag {name:?} does not exist in the repository. Continuing...");
+                    eprintln!("Tag {name:?} does not exist. Continuing...");
                 }
                 else {
-                    bail!("tag {name:?} does not exist in the repository.");
+                    eprintln!("Tag {name:?} does not exist. Aborting...");
+
+                    break;
                 }
             }
         },
@@ -134,7 +144,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
             if let Some(hash) = repo.tags.remove(&old) {
                 println!("Renamed {old:?} to {new:?} ({hash})");
 
-                repo.tags.insert(new.clone(), hash);
+                repo.tags.create(new.clone(), hash);
 
                 repo.action_history.push(
                     Action::RenameTag {
@@ -145,7 +155,7 @@ pub fn parse(subcommand: Subcommands) -> Result<()> {
                 );
             }
             else {
-                bail!("tag {old:?} does not exist in the repository.")
+                eprintln!("Tag {old:?} does not exist.");
             }
         }
     }

@@ -1,48 +1,41 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, io::Write, path::Path};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use eyre::{Result, bail};
+use eyre::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::{hash::ObjectHash, create_file, open_file};
+use crate::{hash::ObjectHash, unwrap};
 
 type Parents = HashSet<ObjectHash>;
+
+type RawGraph = HashMap<ObjectHash, Parents>;
 
 /// Represents the DAG (directed acylic graph) used to
 /// store snapshots and their relationships.
 /// 
 /// This is implemented with a [`HashMap`] of nodes to parents.
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Graph {
-    links: HashMap<ObjectHash, Parents>
+    links: RawGraph
 }
 
 impl Graph {
-    /// Create a [`Graph`] with a root hash as the first node.
-    pub fn new() -> Graph {
-        let mut graph = Graph::empty();
-
-        graph.insert_orphan(ObjectHash::root());
-
-        graph
-    }
-    
     /// Create an empty [`Graph`].
-    pub fn empty() -> Graph {
+    pub fn new() -> Graph {
         Graph::default()
     }
 
     /// Connect a hash to a parent, either adding it to the DAG,
     /// or updating its state within the DAG.
-    pub fn insert(&mut self, hash: ObjectHash, parent: ObjectHash) -> Result<()> {
+    /// 
+    /// If the parent is not present, this will insert an orphan for the parent.
+    pub fn insert(&mut self, hash: ObjectHash, parent: ObjectHash) {
         if !self.contains(parent) {
-            bail!("parent hash {parent} does not exist in the graph.")
+            self.insert_orphan(parent);
         }
 
         let parents = self.links.entry(hash).or_default();
         
         parents.insert(parent);
-
-        Ok(())
     }
 
     /// Insert a hash with no parents.
@@ -52,12 +45,15 @@ impl Graph {
         self.links.insert(hash, HashSet::new());
     }
 
-    /// Remove a hash from the DAG but **DOES NOT** remove itself from
-    /// its children for performance reasons (increasing from `O(1)` to `O(n)`).
-    /// 
-    /// This also returns the parents of the removed hash.
+    /// Remove a hash from the DAG, returning the parents of the removed hash.
     pub fn remove(&mut self, hash: ObjectHash) -> Option<Parents> {
-        self.links.remove(&hash)
+        let node_parents = self.links.remove(&hash);
+
+        for parents in self.links.values_mut() {
+            parents.remove(&hash);
+        }
+
+        node_parents
     }
 
     /// Perform [`Graph::remove`] on the hash, then [`Graph::insert`]
@@ -100,8 +96,13 @@ impl Graph {
             if next == b {
                 return Ok(true);
             }
+            
+            let parents = unwrap!(
+                self.get_parents(next),
+                "failed to get parents of hash {next:?}"
+            );
 
-            queue.extend(self.get_parents(next).unwrap().iter());
+            queue.extend(parents.iter());
         }
 
         Ok(false)
@@ -112,25 +113,40 @@ impl Graph {
         self.links.len()
     }
 
-    pub fn from_file(path: impl AsRef<Path>) -> Result<Graph> {
-        let fp = open_file(path)?;
+    /// Return a [`HashMap`] inverting all the links in this [`Graph`].
+    /// 
+    /// This clones the entire graph for convenience.
+    pub fn invert(&self) -> Graph {
+        let mut graph = Graph::new();
 
-        Ok(rmp_serde::from_read(fp)?)
+        for (hash, parents) in self.iter() {
+            graph.insert_orphan(hash);
+
+            for &parent in parents {
+                graph.insert(parent, hash);
+            }
+        }
+
+        graph
     }
 
-    pub fn to_file(&self, path: impl AsRef<Path>) -> Result<()> {
-        let mut fp = create_file(path)?;
-
-        let data = rmp_serde::to_vec(self)?;
-
-        fp.write_all(&data)?;
-
-        Ok(())
+    pub fn extend(&mut self, other: &Graph) {
+        for (hash, parents) in other.iter() {
+            for &parent in parents {
+                self.insert(hash, parent);
+            }
+        }
     }
 }
 
-impl From<HashMap<ObjectHash, HashSet<ObjectHash>>> for Graph {
-    fn from(value: HashMap<ObjectHash, HashSet<ObjectHash>>) -> Self {
+impl From<RawGraph> for Graph {
+    fn from(value: RawGraph) -> Self {
         Graph { links: value }
+    }
+}
+
+impl From<Graph> for RawGraph {
+    fn from(value: Graph) -> RawGraph {
+        value.links
     }
 }

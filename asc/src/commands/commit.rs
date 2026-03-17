@@ -1,9 +1,8 @@
-use clap::Args as A;
-use eyre::{Result, bail};
+use eyre::Result;
 
-use libasc::{repository::Repository, unwrap, get_content_from_editor};
+use libasc::{repository::Repository, unwrap, utils::get_content_from_editor};
 
-#[derive(A)]
+#[derive(clap::Args)]
 pub struct Args {
     /// The message to be attached to the commit.
     #[arg(short, long)]
@@ -30,11 +29,15 @@ pub fn parse(args: Args) -> Result<()> {
     let mut repo = Repository::load()?;
 
     if !repo.has_unsaved_changes()? {
-        bail!("no changes to document in the upcoming commit.");
+        eprintln!("No changes to document in the upcoming commit.");
+
+        return Ok(());
     }
 
     if repo.staged_files.is_empty() {
-        bail!("no files are being tracked - empty snapshots are disallowed.");
+        eprintln!("No files are being tracked - empty snapshots are disallowed.");
+
+        return Ok(());
     }
 
     let message = if let Some(msg) = args.message {
@@ -42,7 +45,10 @@ pub fn parse(args: Args) -> Result<()> {
     }
     else {
         let editor = args.editor.unwrap_or(
-            unwrap!(std::env::var("EDITOR"), "environment variable 'EDITOR' is not set.")
+            unwrap!(
+                std::env::var("EDITOR"),
+                "environment variable 'EDITOR' is not set."
+            )
         );
 
         let snapshot_message_path = &repo.main_dir().join("SNAPSHOT_MESSAGE");
@@ -50,14 +56,7 @@ pub fn parse(args: Args) -> Result<()> {
         get_content_from_editor(&editor, snapshot_message_path, COMMIT_TEMPLATE_MESSAGE)?
     };
 
-    let current_user = unwrap!(
-        repo.current_user(),
-        "no selected user for this repository"
-    );
-
-    let author = current_user.name.clone();
-
-    let snapshot = repo.capture_current_state(author, message)?;
+    let snapshot = repo.commit_current_state(message)?;
 
     if let Some(new_branch) = args.branch {
         if let Some(previous_hash) = repo.branches.get(&new_branch) {

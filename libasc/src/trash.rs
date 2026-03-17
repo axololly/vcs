@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::hash::ObjectHash;
@@ -17,14 +17,14 @@ pub enum TrashStatus {
     Indirect(ObjectHash)
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct Entry {
-    pub when: DateTime<Local>,
+    pub when: DateTime<Utc>,
     pub hash: ObjectHash
 }
 
 /// A rubbish bin meant exclusively for snapshot hashes.
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 pub struct Trash {
     entries: Vec<Entry>
 }
@@ -41,7 +41,7 @@ impl Trash {
     /// as this information is in [`Graph`].
     pub fn add(&mut self, hash: ObjectHash) {
         self.entries.push(Entry {
-            when: Local::now(),
+            when: Utc::now(),
             hash
         });
     }

@@ -1,21 +1,23 @@
-use std::path::PathBuf;
-
 use derive_more::Display;
+use relative_path::RelativePath;
 
-#[derive(Display)]
-pub enum FileChange {
-    #[display("ADDED       {}", _0.display())]
-    Added(PathBuf),
+#[derive(Display, Debug)]
+pub enum FileChange<P: AsRef<RelativePath>> {
+    #[display("ADDED       {_0}")]
+    Added(P),
 
-    #[display("REMOVED     {}", _0.display())]
-    Removed(PathBuf),
+    #[display("REMOVED     {_0}")]
+    Removed(P),
     
-    #[display("EDITED      {}", _0.display())]
-    Edited(PathBuf),
+    #[display("EDITED      {_0}")]
+    Edited(P),
 
-    #[display("UNCHANGED   {}", _0.display())]
-    Unchanged(PathBuf),
+    #[display("UNCHANGED   {_0}")]
+    Unchanged(P),
 
-    #[display("MISSING     {}", _0.display())]
-    Missing(PathBuf)
+    #[display("MISSING     {_0}")]
+    Missing(P),
+
+    #[display("SKIP        {_0}")]
+    Skip(P)
 }
